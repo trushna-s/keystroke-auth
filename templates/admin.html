@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin | KeyAuth</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="logo-icon">🛡️</div>
+            <span>KeyAuth</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active"
+               onclick="showSection('overview', event)">
+                <span class="nav-icon">⊞</span> Overview
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('users', event)">
+                <span class="nav-icon">👥</span> Employees
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('locations', event)">
+                <span class="nav-icon">📍</span>
+                Login Locations
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('logs', event)">
+                <span class="nav-icon">📋</span>
+                Auth Logs
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('alerts', event)">
+                <span class="nav-icon">⚠️</span>
+                Alerts
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('simulation', event)">
+                <span class="nav-icon">🎯</span>
+                Attack Simulation
+            </a>
+            <a href="#" class="nav-item"
+               onclick="showSection('settings', event)">
+                <span class="nav-icon">⚙️</span>
+                Settings
+            </a>
+        </nav>
+        <div class="sidebar-user">
+            <div class="user-avatar">
+                {{ username[0].upper() }}
+            </div>
+            <div class="user-info">
+                <span class="user-name">{{ username }}</span>
+                <span class="user-status"
+                      style="color:#ff9800">
+                    ● Admin
+                </span>
+            </div>
+            <a href="{{ url_for('logout') }}"
+               class="logout-icon">⇥</a>
+        </div>
+    </aside>
+
+    <!-- ── Main Area ── -->
+    <div class="main-area">
+
+        <header class="topbar">
+            <h2 id="section-title">Admin Dashboard</h2>
+            <div class="topbar-right">
+                <span style="color:#888;font-size:13px">
+                    {{ company }}
+                </span>
+                <span style="background:#1a2e1a;
+                             color:#4caf50;
+                             padding:4px 12px;
+                             border-radius:20px;
+                             font-size:12px;
+                             font-weight:600;
+                             letter-spacing:2px">
+                    🔑 {{ company_code }}
+                </span>
+                <a href="{{ url_for('export_logs') }}"
+                   class="alert-btn"
+                   style="text-decoration:none">
+                    ⬇️ Export CSV
+                </a>
+            </div>
+        </header>
+
+        <!-- ── Overview Section ── -->
+        <div id="section-overview"
+             class="content-grid">
+
+            <div class="card" style="grid-column:1">
+                <div class="card-header">
+                    <h3>Total Employees</h3>
+                </div>
+                <h1 style="font-size:48px;
+                           color:#6c63ff;
+                           text-align:center">
+                    {{ total_users }}
+                </h1>
+                <p style="text-align:center;
+                          color:#888;font-size:13px">
+                    Registered accounts
+                </p>
+            </div>
+
+            <div class="card" style="grid-column:2">
+                <div class="card-header">
+                    <h3>Active Sessions</h3>
+                </div>
+                <h1 style="font-size:48px;
+                           color:#4caf50;
+                           text-align:center">
+                    {{ active_sessions }}
+                </h1>
+                <p style="text-align:center;
+                          color:#888;font-size:13px">
+                    Currently online
+                </p>
+            </div>
+
+            <div class="card" style="grid-column:3">
+                <div class="card-header">
+                    <h3>Security Alerts</h3>
+                </div>
+                <h1 style="font-size:48px;
+                           color:#ff9800;
+                           text-align:center">
+                    {{ alerts|length }}
+                </h1>
+                <p style="text-align:center;
+                          color:#888;font-size:13px">
+                    Total alerts
+                </p>
+            </div>
+
+            <div class="card"
+                 style="grid-column:1/3;grid-row:2">
+                <div class="card-header">
+                    <h3>Trust Score Distribution</h3>
+                </div>
+                <canvas id="trustChart"
+                        style="max-height:200px">
+                </canvas>
+            </div>
+
+            <div class="card"
+                 style="grid-column:3;grid-row:2">
+                <div class="card-header">
+                    <h3>System Health</h3>
+                </div>
+                <div class="score-details">
+                    <div class="score-row">
+                        <span>Enrolled Employees</span>
+                        <span class="score-val">
+                            {{ enrolled_users }}
+                        </span>
+                    </div>
+                    <div class="score-row">
+                        <span>Blocked Accounts</span>
+                        <span style="color:#f44336;
+                                     font-weight:600">
+                            {{ blocked_users }}
+                        </span>
+                    </div>
+                    <div class="score-row">
+                        <span>Total Logs</span>
+                        <span class="score-val">
+                            {{ total_logs }}
+                        </span>
+                    </div>
+                    {% if trust_stats and
+                          trust_stats.avg_score %}
+                    <div class="score-row">
+                        <span>Avg Trust Score</span>
+                        <span class="score-val">
+                            {{ trust_stats.avg_score
+                               |round(1) }}%
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ── Employees Section ── -->
+        <div id="section-users"
+             class="admin-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>All Employees</h3>
+                    <span style="background:#1a2e1a;
+                                 color:#4caf50;
+                                 padding:4px 12px;
+                                 border-radius:20px;
+                                 font-size:12px">
+                        Company Code:
+                        <strong>{{ company_code }}</strong>
+                    </span>
+                </div>
+                <p style="color:#888;font-size:13px;
+                          margin-bottom:16px">
+                    Share the company code above
+                    with employees to let them
+                    register at
+                    <strong style="color:#6c63ff">
+                        /register/user
+                    </strong>
+                </p>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Email</th>
+                            <th>Last Login</th>
+                            <th>Location</th>
+                            <th>Device</th>
+                            <th>Avg Trust</th>
+                            <th>Enrolled</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>
+                            <div style="display:flex;
+                                        align-items:center;
+                                        gap:8px">
+                                <div style="width:30px;
+                                            height:30px;
+                                            background:#6c63ff;
+                                            border-radius:50%;
+                                            display:flex;
+                                            align-items:center;
+                                            justify-content:center;
+                                            font-size:12px;
+                                            font-weight:700">
+                                    {{ user.username[0]
+                                       .upper() }}
+                                </div>
+                                {{ user.username }}
+                            </div>
+                        </td>
+                        <td style="color:#888;
+                                   font-size:12px">
+                            {{ user.email }}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#666">
+                            {{ user.last_login or '--' }}
+                        </td>
+                        <td style="font-size:12px">
+                            {% if user.city %}
+                            📍 {{ user.city }},
+                            {{ user.country }}
+                            {% else %}--{% endif %}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#888">
+                            {{ user.browser or '--' }}
+                            /
+                            {{ user.device or '--' }}
+                        </td>
+                        <td>
+                            {% if user.avg_trust %}
+                            <span class="trust-badge
+                            {% if user.avg_trust >= 70 %}
+                                trust-high
+                            {% elif user.avg_trust >= 50 %}
+                                trust-med
+                            {% else %}
+                                trust-low
+                            {% endif %}">
+                                {{ user.avg_trust
+                                   |round(1) }}%
+                            </span>
+                            {% else %}
+                            <span style="color:#666;
+                                        font-size:12px">
+                                No data
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.is_enrolled %}
+                            <span style="color:#4caf50;
+                                        font-size:12px">
+                                ✅ Yes
+                            </span>
+                            {% else %}
+                            <span style="color:#888;
+                                        font-size:12px">
+                                ❌ No
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.is_blocked %}
+                            <span class="badge-blocked">
+                                Blocked
+                            </span>
+                            {% else %}
+                            <span class="badge-active">
+                                Active
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.is_blocked %}
+                            <button
+                                class="btn-action btn-unblock"
+                                onclick="unblockUser(
+                                    {{ user.id }})">
+                                Unblock
+                            </button>
+                            {% else %}
+                            <button
+                                class="btn-action btn-block"
+                                onclick="blockUser(
+                                    {{ user.id }})">
+                                Block
+                            </button>
+                            {% endif %}
+                            <button
+                                class="btn-action btn-delete"
+                                onclick="deleteUser(
+                                    {{ user.id }},
+                                    '{{ user.username }}')">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ── Login Locations Section ── -->
+        <div id="section-locations"
+             class="admin-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>📍 Login Location History</h3>
+                </div>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Time</th>
+                            <th>City</th>
+                            <th>Country</th>
+                            <th>Browser</th>
+                            <th>Device</th>
+                            <th>IP Address</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for loc in login_locations %}
+                    <tr>
+                        <td>{{ loc.username }}</td>
+                        <td style="font-size:12px;
+                                   color:#666">
+                            {{ loc.login_time }}
+                        </td>
+                        <td>
+                            {{ loc.city or 'Unknown' }}
+                        </td>
+                        <td>
+                            {{ loc.country or 'Unknown' }}
+                        </td>
+                        <td>
+                            {{ loc.browser or 'Unknown' }}
+                        </td>
+                        <td>
+                            {{ loc.device or 'Unknown' }}
+                        </td>
+                        <td style="font-size:11px;
+                                   color:#666">
+                            {{ loc.ip_address or '--' }}
+                        </td>
+                        <td>
+                            {% if loc.status == 'active' %}
+                            <span class="badge-active">
+                                Active
+                            </span>
+                            {% elif loc.status ==
+                                    'terminated' %}
+                            <span class="badge-blocked">
+                                Terminated
+                            </span>
+                            {% else %}
+                            <span style="color:#888;
+                                        font-size:12px">
+                                Ended
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ── Auth Logs Section ── -->
+        <div id="section-logs"
+             class="admin-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Authentication Logs</h3>
+                </div>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Dwell Time</th>
+                            <th>Flight Time</th>
+                            <th>WPM</th>
+                            <th>Trust Score</th>
+                            <th>Risk Level</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.username }}</td>
+                        <td style="font-size:12px">
+                            {{ "%.3f"|format(
+                               log.dwell_time or 0) }}s
+                        </td>
+                        <td style="font-size:12px">
+                            {{ "%.3f"|format(
+                               log.flight_time or 0) }}s
+                        </td>
+                        <td style="font-size:12px">
+                            {{ "%.1f"|format(
+                               log.wpm or 0) }}
+                        </td>
+                        <td>
+                            <span class="trust-badge
+                            {% if log.trust_score >= 70 %}
+                                trust-high
+                            {% elif log.trust_score >= 50 %}
+                                trust-med
+                            {% else %}
+                                trust-low
+                            {% endif %}">
+                                {{ "%.1f"|format(
+                                   log.trust_score
+                                   or 0) }}%
+                            </span>
+                        </td>
+                        <td>
+                            {% if log.trust_score >= 70 %}
+                            <span style="color:#4caf50;
+                                        font-size:12px">
+                                Safe
+                            </span>
+                            {% elif log.trust_score >= 50 %}
+                            <span style="color:#ff9800;
+                                        font-size:12px">
+                                Suspicious
+                            </span>
+                            {% elif log.trust_score >= 25 %}
+                            <span style="color:#f44336;
+                                        font-size:12px">
+                                High Risk
+                            </span>
+                            {% else %}
+                            <span style="color:#ff1744;
+                                        font-size:12px">
+                                Critical
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#666">
+                            {{ log.timestamp }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ── Alerts Section ── -->
+        <div id="section-alerts"
+             class="admin-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Security Alerts</h3>
+                </div>
+                {% if alerts %}
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Alert Type</th>
+                            <th>Message</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for alert in alerts %}
+                    <tr>
+                        <td>{{ alert.username }}</td>
+                        <td>
+                            {% if alert.alert_type ==
+                               'NEW_LOCATION' %}
+                            <span style="color:#ff9800;
+                                        font-size:12px">
+                                📍 New Location
+                            </span>
+                            {% elif alert.alert_type ==
+                               'SESSION_TERMINATED' %}
+                            <span style="color:#f44336;
+                                        font-size:12px">
+                                🚫 Terminated
+                            </span>
+                            {% else %}
+                            <span style="color:#6c63ff;
+                                        font-size:12px">
+                                ⚠️ {{ alert.alert_type }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:13px;
+                                   color:#aaa">
+                            {{ alert.message }}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#666">
+                            {{ alert.timestamp }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div style="text-align:center;
+                            padding:60px 20px">
+                    <div style="font-size:48px;
+                                margin-bottom:16px">✅</div>
+                    <h3 style="color:#fff;
+                               margin-bottom:8px">
+                        No alerts!
+                    </h3>
+                    <p style="color:#888;font-size:14px">
+                        All employee sessions are secure.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ── Attack Simulation Section ── -->
+        <div id="section-simulation"
+             class="admin-section">
+
+            <div class="card"
+                 style="margin-bottom:20px">
+                <div class="card-header">
+                    <h3>🎯 Attack Simulation Center</h3>
+                </div>
+                <p style="color:#888;font-size:13px;
+                          margin-bottom:20px">
+                    Simulate attacks to test your
+                    security system's detection
+                    capabilities. Safe testing only.
+                </p>
+
+                <div style="display:grid;
+                            grid-template-columns:
+                                repeat(2,1fr);
+                            gap:16px;
+                            margin-bottom:24px">
+
+                    <div class="sim-card"
+                         onclick="runSimulation(
+                             'password_sharing')">
+                        <div class="sim-icon">🔑</div>
+                        <h4>Password Sharing Attack</h4>
+                        <p>Someone else uses your
+                           employee's stolen credentials</p>
+                        <span class="sim-badge danger">
+                            High Risk
+                        </span>
+                    </div>
+
+                    <div class="sim-card"
+                         onclick="runSimulation(
+                             'session_hijacking')">
+                        <div class="sim-icon">👤</div>
+                        <h4>Session Hijacking</h4>
+                        <p>Attacker takes over an
+                           active session mid-work</p>
+                        <span class="sim-badge danger">
+                            Critical
+                        </span>
+                    </div>
+
+                    <div class="sim-card"
+                         onclick="runSimulation(
+                             'unknown_location')">
+                        <div class="sim-icon">📍</div>
+                        <h4>Unknown Location Login</h4>
+                        <p>Login attempt from an
+                           unrecognized location</p>
+                        <span class="sim-badge warning">
+                            Medium Risk
+                        </span>
+                    </div>
+
+                    <div class="sim-card"
+                         onclick="runSimulation(
+                             'bot_typing')">
+                        <div class="sim-icon">🤖</div>
+                        <h4>Bot Typing Attack</h4>
+                        <p>Automated bot tries to
+                           mimic human typing</p>
+                        <span class="sim-badge danger">
+                            High Risk
+                        </span>
+                    </div>
+
+                </div>
+
+                <div id="sim-loading"
+                     style="display:none;
+                            text-align:center;
+                            padding:20px;
+                            color:#6c63ff">
+                    ⏳ Running simulation...
+                </div>
+
+                <div id="sim-result"
+                     style="display:none">
+                </div>
+
+            </div>
+
+            {% if simulations %}
+            <div class="card">
+                <div class="card-header">
+                    <h3>Simulation History</h3>
+                </div>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Attack Type</th>
+                            <th>Initial Score</th>
+                            <th>Final Score</th>
+                            <th>Score Drop</th>
+                            <th>Detected</th>
+                            <th>Response</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for sim in simulations %}
+                    <tr>
+                        <td>
+                            {{ sim.attack_type
+                               .replace('_',' ')
+                               .title() }}
+                        </td>
+                        <td>
+                            <span class="trust-badge
+                                         trust-high">
+                                {{ sim.initial_score
+                                   |round(1) }}%
+                            </span>
+                        </td>
+                        <td>
+                            <span class="trust-badge
+                                         trust-low">
+                                {{ sim.final_score
+                                   |round(1) }}%
+                            </span>
+                        </td>
+                        <td style="color:#f44336;
+                                   font-weight:600">
+                            -{{ (sim.initial_score -
+                                 sim.final_score)
+                                |round(1) }}%
+                        </td>
+                        <td>
+                            {% if sim.detected %}
+                            <span style="color:#4caf50">
+                                ✅ Detected
+                            </span>
+                            {% else %}
+                            <span style="color:#f44336">
+                                ❌ Missed
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#aaa">
+                            {{ sim.response }}
+                        </td>
+                        <td style="font-size:12px;
+                                   color:#666">
+                            {{ sim.timestamp }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+        </div>
+
+        <!-- ── Settings Section ── -->
+        <div id="section-settings"
+             class="admin-section">
+            <div class="card"
+                 style="max-width:500px">
+                <div class="card-header">
+                    <h3>⚙️ Admin Credentials</h3>
+                </div>
+                <p style="color:#888;font-size:13px;
+                          margin-bottom:20px">
+                    Update your admin account details.
+                    Leave password blank to keep current.
+                </p>
+
+                <div class="input-group">
+                    <label>Username</label>
+                    <input type="text"
+                           id="new-username"
+                           value="{{ username }}"
+                           placeholder="New username">
+                </div>
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email"
+                           id="new-email"
+                           placeholder="New email">
+                </div>
+                <div class="input-group">
+                    <label>New Password</label>
+                    <input type="password"
+                           id="new-password"
+                           placeholder="Leave blank to keep">
+                </div>
+                <div class="input-group">
+                    <label>Confirm Password</label>
+                    <input type="password"
+                           id="confirm-password"
+                           placeholder="Confirm new password">
+                </div>
+
+                <div id="cred-msg"
+                     style="font-size:13px;
+                            margin-bottom:16px;
+                            min-height:18px">
+                </div>
+                <button class="btn-primary"
+                        onclick="changeCredentials()">
+                    Update Credentials
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// ── Section Navigation ────────────────────────────────────────────
+const sectionTitles = {
+    overview:   'Admin Dashboard',
+    users:      'Employee Management',
+    locations:  'Login Location History',
+    logs:       'Authentication Logs',
+    alerts:     'Security Alerts',
+    simulation: 'Attack Simulation Center',
+    settings:   'Settings'
+};
+
+function showSection(name, event) {
+    document.querySelectorAll(
+        '.content-grid, .admin-section'
+    ).forEach(el => el.style.display = 'none');
+
+    const target =
+        document.getElementById(`section-${name}`);
+    if (target) {
+        target.style.display =
+            name === 'overview' ? 'grid' : 'block';
+    }
+
+    document.querySelectorAll('.nav-item')
+        .forEach(el => el.classList.remove('active'));
+
+    if (event && event.target) {
+        event.target.closest('.nav-item')
+            .classList.add('active');
+    }
+
+    const titleEl =
+        document.getElementById('section-title');
+    if (titleEl) {
+        titleEl.textContent =
+            sectionTitles[name] || 'Admin Dashboard';
+    }
+}
+
+// ── Trust Score Chart ─────────────────────────────────────────────
+const ctx = document.getElementById('trustChart');
+if (ctx) {
+    new Chart(ctx.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: [
+                'Critical (<25%)',
+                'High Risk (25-50%)',
+                'Suspicious (50-70%)',
+                'Safe (>70%)'
+            ],
+            datasets: [{
+                label: 'Sessions',
+                data: [
+                    {{ logs | selectattr('trust_score',
+                       'lt', 25) | list | length }},
+                    {{ logs | selectattr('trust_score',
+                       'ge', 25) | selectattr(
+                       'trust_score', 'lt', 50)
+                       | list | length }},
+                    {{ logs | selectattr('trust_score',
+                       'ge', 50) | selectattr(
+                       'trust_score', 'lt', 70)
+                       | list | length }},
+                    {{ logs | selectattr('trust_score',
+                       'ge', 70) | list | length }}
+                ],
+                backgroundColor: [
+                    '#ff1744', '#f44336',
+                    '#ff9800', '#4caf50'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    ticks: { color: '#666' },
+                    grid:  { color: '#2a2a2a' }
+                },
+                x: {
+                    ticks: { color: '#666' },
+                    grid:  { color: '#2a2a2a' }
+                }
+            }
+        }
+    });
+}
+
+// ── User Actions ──────────────────────────────────────────────────
+function blockUser(userId) {
+    if (!confirm('Block this employee?')) return;
+    fetch(`/admin/block/${userId}`,
+          { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { if (d.success) location.reload(); });
+}
+
+function unblockUser(userId) {
+    if (!confirm('Unblock this employee?')) return;
+    fetch(`/admin/unblock/${userId}`,
+          { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { if (d.success) location.reload(); });
+}
+
+function deleteUser(userId, username) {
+    if (!confirm(
+        `Permanently delete ${username}?`
+    )) return;
+    fetch(`/admin/delete/${userId}`,
+          { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { if (d.success) location.reload(); });
+}
+
+// ── Attack Simulation ─────────────────────────────────────────────
+function runSimulation(attackType) {
+    const loading =
+        document.getElementById('sim-loading');
+    const result  =
+        document.getElementById('sim-result');
+
+    loading.style.display = 'block';
+    result.style.display  = 'none';
+
+    fetch('/admin/simulate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+            attack_type: attackType
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        loading.style.display = 'none';
+        result.style.display  = 'block';
+
+        const dropColor = data.score_drop > 50
+            ? '#f44336' : '#ff9800';
+
+        const anomalyList = data.details
+            .anomaly_features
+            ? data.details.anomaly_features
+                .map(f => `
+                <span style="background:#2a2a2a;
+                    padding:3px 8px;border-radius:4px;
+                    font-size:12px;color:#ccc;
+                    margin:2px;display:inline-block">
+                    ${f}
+                </span>`).join('')
+            : '';
+
+        const detailsHtml = Object.entries(data.details)
+            .filter(([k]) => k !== 'anomaly_features')
+            .map(([k, v]) => `
+            <div class="score-row">
+                <span style="color:#888;font-size:13px">
+                    ${k.replace(/_/g,' ')
+                       .replace(/\b\w/g,
+                       l => l.toUpperCase())}
+                </span>
+                <span style="color:#fff;font-size:13px">
+                    ${v}
+                </span>
+            </div>`).join('');
+
+        result.innerHTML = `
+        <div style="background:#1a1a1a;
+                    border:1px solid #333;
+                    border-radius:12px;
+                    padding:24px;
+                    margin-top:16px">
+
+            <div style="display:flex;
+                        justify-content:space-between;
+                        align-items:center;
+                        margin-bottom:20px">
+                <div>
+                    <h3 style="color:#fff;
+                               margin-bottom:4px">
+                        ${data.name}
+                    </h3>
+                    <p style="color:#888;
+                              font-size:13px;margin:0">
+                        ${data.description}
+                    </p>
+                </div>
+                <span style="background:#1a2e1a;
+                             color:#4caf50;
+                             padding:8px 16px;
+                             border-radius:20px;
+                             font-size:13px;
+                             font-weight:600">
+                    ✅ ${data.detected
+                        ? 'DETECTED' : 'NOT DETECTED'}
+                </span>
+            </div>
+
+            <div style="display:grid;
+                        grid-template-columns:
+                            repeat(4,1fr);
+                        gap:16px;
+                        margin-bottom:20px">
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px;
+                            text-align:center">
+                    <p style="color:#888;font-size:12px;
+                              margin-bottom:6px">
+                        Initial Score
+                    </p>
+                    <h3 style="color:#4caf50;
+                               font-size:28px;margin:0">
+                        ${data.initial_score}%
+                    </h3>
+                </div>
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px;
+                            text-align:center">
+                    <p style="color:#888;font-size:12px;
+                              margin-bottom:6px">
+                        Final Score
+                    </p>
+                    <h3 style="color:#f44336;
+                               font-size:28px;margin:0">
+                        ${data.final_score}%
+                    </h3>
+                </div>
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px;
+                            text-align:center">
+                    <p style="color:#888;font-size:12px;
+                              margin-bottom:6px">
+                        Score Drop
+                    </p>
+                    <h3 style="color:${dropColor};
+                               font-size:28px;margin:0">
+                        -${data.score_drop}%
+                    </h3>
+                </div>
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px;
+                            text-align:center">
+                    <p style="color:#888;font-size:12px;
+                              margin-bottom:6px">
+                        Detection Time
+                    </p>
+                    <h3 style="color:#6c63ff;
+                               font-size:28px;margin:0">
+                        ${data.detection_time}s
+                    </h3>
+                </div>
+
+            </div>
+
+            <div style="display:grid;
+                        grid-template-columns:1fr 1fr;
+                        gap:16px">
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px">
+                    <h4 style="color:#fff;
+                               margin-bottom:12px;
+                               font-size:14px">
+                        Detection Details
+                    </h4>
+                    ${detailsHtml}
+                </div>
+
+                <div style="background:#2a2a2a;
+                            border-radius:10px;
+                            padding:16px">
+                    <h4 style="color:#fff;
+                               margin-bottom:12px;
+                               font-size:14px">
+                        Anomalous Features
+                    </h4>
+                    <div>${anomalyList}</div>
+                    <div style="margin-top:16px;
+                                padding-top:16px;
+                                border-top:1px solid #333">
+                        <p style="color:#888;
+                                  font-size:12px;
+                                  margin-bottom:6px">
+                            System Response
+                        </p>
+                        <p style="color:#ff9800;
+                                  font-size:13px;
+                                  font-weight:600;
+                                  margin:0">
+                            ⚡ ${data.response}
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>`;
+    })
+    .catch(err => {
+        loading.style.display = 'none';
+        console.error('Simulation error:', err);
+    });
+}
+
+// ── Change Credentials ────────────────────────────────────────────
+function changeCredentials() {
+    const username = document.getElementById(
+        'new-username').value.trim();
+    const email    = document.getElementById(
+        'new-email').value.trim();
+    const password = document.getElementById(
+        'new-password').value;
+    const confirm  = document.getElementById(
+        'confirm-password').value;
+    const msgEl    =
+        document.getElementById('cred-msg');
+
+    if (!username || !email) {
+        msgEl.style.color = '#ff6b6b';
+        msgEl.textContent = 'Username and email required.';
+        return;
+    }
+
+    if (password && password !== confirm) {
+        msgEl.style.color = '#ff6b6b';
+        msgEl.textContent = 'Passwords do not match.';
+        return;
+    }
+
+    fetch('/admin/change-credentials', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+            username, email, password
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            msgEl.style.color = '#4caf50';
+            msgEl.textContent = '✅ ' + data.message;
+            document.getElementById(
+                'new-password').value    = '';
+            document.getElementById(
+                'confirm-password').value = '';
+        } else {
+            msgEl.style.color = '#ff6b6b';
+            msgEl.textContent = '❌ ' + data.message;
+        }
+    });
+}
+</script>
+</body>
+</html>

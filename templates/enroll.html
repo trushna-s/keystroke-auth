@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrollment | KeyAuth</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="enroll-container">
+    <div class="enroll-box">
+
+        <div class="enroll-header">
+            <h1>🛡️ KeyAuth</h1>
+            <h2>Keystroke Enrollment</h2>
+            <p>Type each phrase <strong>twice</strong> naturally.
+               This builds your unique typing profile.</p>
+        </div>
+
+        <!-- Overall Progress -->
+        <div class="progress-section">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill"
+                     id="progress-bar"></div>
+            </div>
+            <p id="progress-text">Step 1 of 3</p>
+        </div>
+
+        <!-- Step indicators -->
+        <div class="step-indicators">
+            <div class="step-dot active" id="step-0">1</div>
+            <div class="step-line"></div>
+            <div class="step-dot" id="step-1">2</div>
+            <div class="step-line"></div>
+            <div class="step-dot" id="step-2">3</div>
+        </div>
+
+        <!-- Current phrase -->
+        <div class="phrase-box">
+            <p class="phrase-label" id="phrase-label">
+                Type this phrase:</p>
+            <p class="phrase-text" id="phrase-text"></p>
+        </div>
+
+        <!-- Attempt indicators -->
+        <div class="attempt-row">
+            <span class="attempt-dot" id="attempt-0"></span>
+            <span class="attempt-dot" id="attempt-1"></span>
+            <p id="attempt-label">Attempt 1 of 2</p>
+        </div>
+
+        <!-- Status -->
+        <div class="status-msg" id="status-msg">
+            Click the box below and start typing...
+        </div>
+
+        <!-- Input -->
+        <input
+            type="text"
+            id="enroll-input"
+            class="enroll-input"
+            placeholder="Type here..."
+            autocomplete="off"
+            spellcheck="false"
+        />
+
+        <!-- Next button -->
+        <button class="btn-enroll"
+                id="next-btn"
+                style="display:none"
+                onclick="nextStep()">
+            Next Phrase →
+        </button>
+
+        <!-- Submit button -->
+        <button class="btn-enroll"
+                id="submit-btn"
+                style="display:none"
+                onclick="submitEnrollment()">
+            Complete Enrollment ✓
+        </button>
+
+    </div>
+</div>
+
+<script>
+// ── Phrases ───────────────────────────────────────────────────────
+const PHRASES = [
+    {
+        text:  'the quick brown fox jumps',
+        label: 'Phrase 1 — Short & natural'
+    },
+    {
+        text:  'secure login with keystrokes',
+        label: 'Phrase 2 — Technical words'
+    },
+    {
+        text:  'hello world how are you today',
+        label: 'Phrase 3 — Casual sentence'
+    }
+];
+
+const ATTEMPTS_PER_PHRASE = 2;
+
+// ── State ─────────────────────────────────────────────────────────
+let currentPhrase  = 0;
+let currentAttempt = 0;
+let allSamples     = [];
+let currentKS      = [];
+let keydownTimes   = {};
+let backspaceCount = 0;
+
+// ── Elements ──────────────────────────────────────────────────────
+const input      = document.getElementById('enroll-input');
+const statusEl   = document.getElementById('status-msg');
+const phraseEl   = document.getElementById('phrase-text');
+const labelEl    = document.getElementById('phrase-label');
+const progressEl = document.getElementById('progress-bar');
+const progressTx = document.getElementById('progress-text');
+const nextBtn    = document.getElementById('next-btn');
+const submitBtn  = document.getElementById('submit-btn');
+
+// ── Init ──────────────────────────────────────────────────────────
+function init() {
+    loadPhrase();
+    input.focus();
+}
+
+function loadPhrase() {
+    const phrase = PHRASES[currentPhrase];
+    phraseEl.textContent = phrase.text;
+    labelEl.textContent  = phrase.label;
+    currentAttempt       = 0;
+    currentKS            = [];
+    backspaceCount       = 0;
+    input.value          = '';
+    input.disabled       = false;
+    nextBtn.style.display   = 'none';
+    submitBtn.style.display = 'none';
+
+    updateAttemptDots();
+    updateStepIndicators();
+    updateProgress();
+
+    statusEl.style.color   = '#888';
+    statusEl.textContent   =
+        'Click the box and type the phrase above exactly...';
+}
+
+function updateAttemptDots() {
+    for (let i = 0; i < ATTEMPTS_PER_PHRASE; i++) {
+        const dot = document.getElementById(`attempt-${i}`);
+        if (dot) {
+            dot.className = 'attempt-dot' +
+                (i < currentAttempt ? ' filled' : '');
+        }
+    }
+    document.getElementById('attempt-label').textContent =
+        `Attempt ${currentAttempt + 1} of ${ATTEMPTS_PER_PHRASE}`;
+}
+
+function updateStepIndicators() {
+    PHRASES.forEach((_, i) => {
+        const dot = document.getElementById(`step-${i}`);
+        if (!dot) return;
+        dot.className = 'step-dot' +
+            (i < currentPhrase  ? ' done'   : '') +
+            (i === currentPhrase ? ' active' : '');
+    });
+}
+
+function updateProgress() {
+    const total    = PHRASES.length * ATTEMPTS_PER_PHRASE;
+    const done     = (currentPhrase * ATTEMPTS_PER_PHRASE) +
+                     currentAttempt;
+    const pct      = (done / total) * 100;
+    progressEl.style.width   = pct + '%';
+    progressTx.textContent   =
+        `Step ${currentPhrase + 1} of ${PHRASES.length}`;
+}
+
+// ── Keystroke Capture ─────────────────────────────────────────────
+input.addEventListener('keydown', (e) => {
+    keydownTimes[e.key] = performance.now();
+    if (e.key === 'Backspace') backspaceCount++;
+});
+
+input.addEventListener('keyup', (e) => {
+    const upTime   = performance.now();
+    const downTime = keydownTimes[e.key];
+    if (!downTime) return;
+
+    const dwell  = upTime - downTime;
+    const flight = currentKS.length > 0
+        ? downTime - currentKS[currentKS.length - 1].downTime
+        : null;
+
+    currentKS.push({
+        key:      e.key,
+        downTime: downTime,
+        upTime:   upTime,
+        dwell:    dwell,
+        flight:   flight
+    });
+});
+
+input.addEventListener('input', () => {
+    const val    = input.value;
+    const target = PHRASES[currentPhrase].text;
+
+    if (val === target) {
+        recordAttempt();
+        return;
+    }
+
+    if (target.startsWith(val)) {
+        statusEl.style.color   = '#4caf50';
+        statusEl.textContent   = 'Good! Keep typing...';
+    } else {
+        statusEl.style.color   = '#ff6b6b';
+        statusEl.textContent   =
+            '❌ Mismatch! Keep going or use backspace.';
+    }
+});
+
+// ── Record Attempt ────────────────────────────────────────────────
+function recordAttempt() {
+    if (currentKS.length < 3) return;
+
+    allSamples.push({
+        phrase:          currentPhrase,
+        attempt:         currentAttempt,
+        keystrokes:      [...currentKS],
+        backspace_count: backspaceCount
+    });
+
+    currentAttempt++;
+    currentKS      = [];
+    backspaceCount = 0;
+    input.value    = '';
+
+    updateAttemptDots();
+    updateProgress();
+
+    if (currentAttempt >= ATTEMPTS_PER_PHRASE) {
+        // Done with this phrase
+        input.disabled = true;
+
+        if (currentPhrase < PHRASES.length - 1) {
+            // More phrases left
+            statusEl.style.color   = '#6c63ff';
+            statusEl.textContent   =
+                `✅ Phrase ${currentPhrase + 1} done! Click Next.`;
+            nextBtn.style.display  = 'block';
+        } else {
+            // All phrases done
+            statusEl.style.color       = '#4caf50';
+            statusEl.textContent       =
+                '🎉 All done! Click Complete Enrollment.';
+            submitBtn.style.display    = 'block';
+        }
+    } else {
+        // More attempts for this phrase
+        statusEl.style.color   = '#6c63ff';
+        statusEl.textContent   =
+            `✅ Attempt ${currentAttempt} saved! ` +
+            `Type again (${ATTEMPTS_PER_PHRASE - currentAttempt} left).`;
+    }
+}
+
+// ── Next Phrase ───────────────────────────────────────────────────
+function nextStep() {
+    currentPhrase++;
+    loadPhrase();
+    input.focus();
+}
+
+// ── Submit ────────────────────────────────────────────────────────
+function submitEnrollment() {
+    submitBtn.textContent = 'Saving your profile...';
+    submitBtn.disabled    = true;
+
+    fetch('/save_enrollment', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ samples: allSamples })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            statusEl.style.color   = '#4caf50';
+            statusEl.textContent   =
+                '🎉 Profile saved! Taking you to dashboard...';
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 1500);
+        } else {
+            statusEl.style.color   = '#ff6b6b';
+            statusEl.textContent   = 'Error: ' + data.error;
+            submitBtn.disabled     = false;
+            submitBtn.textContent  = 'Try Again';
+        }
+    })
+    .catch(() => {
+        statusEl.style.color   = '#ff6b6b';
+        statusEl.textContent   = 'Network error. Please try again.';
+        submitBtn.disabled     = false;
+    });
+}
+
+// ── Start ─────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

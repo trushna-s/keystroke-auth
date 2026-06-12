@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Registration | KeyAuth</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="auth-container">
+    <div class="auth-box" style="max-width:420px">
+
+        <div style="text-align:center;margin-bottom:28px">
+            <h1 style="color:#6c63ff;font-size:28px;
+                       margin-bottom:6px">
+                🛡️ KeyAuth
+            </h1>
+            <h2 style="color:#fff;font-size:18px;
+                       margin-bottom:8px">
+                Employee Registration
+            </h2>
+            <p style="color:#888;font-size:13px">
+                Enter the company code provided
+                by your administrator.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="error-msg">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <div class="input-group">
+                <label>Company Code</label>
+                <input type="text"
+                       name="company_code"
+                       required
+                       placeholder="e.g. TCS-X7K9"
+                       style="text-transform:uppercase;
+                              letter-spacing:2px;
+                              font-weight:600"
+                       value="{{ request.args.get('code', '') }}">
+                <small style="color:#888;
+                              font-size:11px;
+                              margin-top:4px;
+                              display:block">
+                    Get this from your company admin
+                </small>
+            </div>
+            <div class="input-group">
+                <label>Your Name</label>
+                <input type="text"
+                       name="username"
+                       required
+                       placeholder="Your full name or username">
+            </div>
+            <div class="input-group">
+                <label>Email</label>
+                <input type="email"
+                       name="email"
+                       required
+                       placeholder="your@email.com">
+            </div>
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password"
+                       name="password"
+                       required
+                       placeholder="Create a password">
+            </div>
+            <button type="submit"
+                    class="btn-primary">
+                Join Company →
+            </button>
+        </form>
+
+        <p class="switch-auth">
+            Already registered?
+            <a href="{{ url_for('login') }}">Login</a>
+        </p>
+        <p class="switch-auth"
+           style="margin-top:8px">
+            Are you a company admin?
+            <a href="{{ url_for('register_admin') }}">
+                Register company
+            </a>
+        </p>
+
+    </div>
+</div>
+</body>
+</html>

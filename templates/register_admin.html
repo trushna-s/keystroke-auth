@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Company | KeyAuth</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="auth-container">
+    <div class="auth-box" style="max-width:460px">
+
+        <div style="text-align:center;margin-bottom:28px">
+            <h1 style="color:#6c63ff;font-size:28px;
+                       margin-bottom:6px">
+                🛡️ KeyAuth
+            </h1>
+            <h2 style="color:#fff;font-size:18px;
+                       margin-bottom:8px">
+                Register Your Company
+            </h2>
+            <p style="color:#888;font-size:13px">
+                Create an admin account for your
+                organization. You'll get a unique
+                company code to share with employees.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="error-msg">{{ error }}</div>
+        {% endif %}
+
+        {% if success %}
+        <div style="background:#1a2e1a;
+                    border:1px solid #4caf5044;
+                    border-radius:10px;
+                    padding:20px;
+                    margin-bottom:20px;
+                    text-align:center">
+            <h3 style="color:#4caf50;margin-bottom:10px">
+                ✅ Company Registered!
+            </h3>
+            <p style="color:#aaa;font-size:13px;
+                      margin-bottom:14px">
+                Your company code is:
+            </p>
+            <div style="background:#0d1f0d;
+                        border:2px solid #4caf50;
+                        border-radius:8px;
+                        padding:16px;
+                        margin-bottom:14px">
+                <span style="color:#4caf50;
+                             font-size:28px;
+                             font-weight:700;
+                             letter-spacing:4px">
+                    {{ company_code }}
+                </span>
+            </div>
+            <p style="color:#888;font-size:12px;
+                      margin-bottom:16px">
+                Share this code with your employees
+                so they can register at
+                <strong style="color:#6c63ff">
+                    /register/user
+                </strong>
+            </p>
+            <a href="{{ url_for('login') }}"
+               class="btn-primary"
+               style="display:block;
+                      text-decoration:none;
+                      text-align:center">
+                Go to Login
+            </a>
+        </div>
+        {% else %}
+        <form method="POST">
+            <div class="input-group">
+                <label>Company Name</label>
+                <input type="text"
+                       name="company_name"
+                       required
+                       placeholder="e.g. TCS, Infosys, Accenture">
+            </div>
+            <div class="input-group">
+                <label>Your Name (Admin)</label>
+                <input type="text"
+                       name="username"
+                       required
+                       placeholder="Admin username">
+            </div>
+            <div class="input-group">
+                <label>Work Email</label>
+                <input type="email"
+                       name="email"
+                       required
+                       placeholder="admin@company.com">
+            </div>
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password"
+                       name="password"
+                       required
+                       placeholder="Create strong password">
+            </div>
+            <button type="submit"
+                    class="btn-primary">
+                Register Company →
+            </button>
+        </form>
+
+        <p class="switch-auth">
+            Already have an account?
+            <a href="{{ url_for('login') }}">Login</a>
+        </p>
+        <p class="switch-auth"
+           style="margin-top:8px">
+            Employee?
+            <a href="{{ url_for('register_user') }}">
+                Register here
+            </a>
+        </p>
+        {% endif %}
+
+    </div>
+</div>
+</body>
+</html>

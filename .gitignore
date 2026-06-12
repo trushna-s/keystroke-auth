@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pkl
+.env
+*.pyc
+.DS_Store
+database/keystroke.db

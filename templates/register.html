@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | KeyAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-box">
+            <h1>KeyAuth</h1>
+            <p class="subtitle">Create your account</p>
+
+            {% if error %}
+            <div class="error-msg">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST">
+                <div class="input-group">
+                    <label>Username</label>
+                    <input type="text" name="username" required placeholder="Enter username">
+                </div>
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" name="email" required placeholder="Enter email">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" name="password" required placeholder="Enter password">
+                </div>
+                <button type="submit" class="btn-primary">Register</button>
+            </form>
+
+            <p class="switch-auth">Already have an account? 
+                <a href="{{ url_for('login') }}">Login</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
