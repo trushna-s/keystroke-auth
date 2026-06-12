@@ -5,9 +5,9 @@ let keydownTimes   = {};
 let backspaceCount = 0;
 const windowSize   = 25;
 
-// Stricter — only needs 3 consecutive bad windows
+// Only 2 consecutive bad windows → logout
 const scoreHistory = [];
-const historyLimit = 3;
+const historyLimit = 2;
 
 document.addEventListener('keydown', function(e) {
     const key  = e.key;
@@ -70,7 +70,7 @@ function sendKeystrokeData(data) {
     .catch(err => console.error('Error:', err));
 }
 
-// ── Rolling Window ────────────────────────────────────────────────
+// ── Rolling Window — 2 strikes and out ───────────────────────────
 function processTrustScore(result) {
     const score  = Math.min(100, Math.max(0,
                    parseFloat(result.trust_score)));
@@ -86,19 +86,18 @@ function processTrustScore(result) {
     ) / scoreHistory.length;
     const roundedAvg = Math.round(avgScore);
 
-    // Count non-allow windows
     const lowCount = scoreHistory.filter(
         s => s.status !== 'allow'
     ).length;
 
     console.log(
         `Avg: ${roundedAvg}% | ` +
-        `Low windows: ${lowCount}/${historyLimit}`
+        `Low: ${lowCount}/${historyLimit}`
     );
 
-    // Trigger if majority of windows are low
+    // Both windows must be low to trigger
     if (scoreHistory.length >= historyLimit &&
-        lowCount >= Math.ceil(historyLimit * 0.6)) {
+        lowCount >= historyLimit) {
 
         const hasTerminate = scoreHistory.some(
             s => s.status === 'terminate');
@@ -108,11 +107,10 @@ function processTrustScore(result) {
             s => s.status === 'suspicious');
 
         const finalStatus =
-            hasTerminate   ? 'terminate'   :
-            hasOTP         ? 'otp'         :
-            hasSuspicious  ? 'suspicious'  : 'allow';
+            hasTerminate  ? 'terminate'  :
+            hasOTP        ? 'otp'        :
+            hasSuspicious ? 'suspicious' : 'allow';
 
-        // Send OTP email only once
         if (finalStatus === 'otp' &&
             !window.otpModalShowing) {
             fetch('/send_otp', { method: 'POST' })
@@ -147,7 +145,7 @@ function handleTrustUpdate(score, status) {
     } else if (status === 'terminate') {
         if (typeof addActivity === 'function') {
             addActivity(
-                '🚫 Session terminated',
+                '🚫 Session terminated — logging out',
                 'danger'
             );
         }

@@ -1162,6 +1162,81 @@ def update_profile():
     conn.close()
     return jsonify({'success': True})
 
+# ── Employee Stats for Admin ──────────────────────────────────────
+@app.route('/admin/employee/<int:user_id>')
+@admin_required
+def employee_stats(user_id):
+    conn       = get_db()
+    company_id = session.get('company_id')
+
+    # Verify employee belongs to admin's company
+    user = conn.execute('''
+        SELECT * FROM users
+        WHERE id=? AND company_id=?
+        AND is_admin=0
+    ''', (user_id, company_id)).fetchone()
+
+    if not user:
+        conn.close()
+        return redirect(url_for('admin_dashboard'))
+
+    # Recent keystroke logs
+    logs = conn.execute('''
+        SELECT * FROM keystroke_logs
+        WHERE user_id=?
+        ORDER BY timestamp DESC LIMIT 50
+    ''', (user_id,)).fetchall()
+
+    # Recent sessions
+    sessions_list = conn.execute('''
+        SELECT * FROM sessions
+        WHERE user_id=?
+        ORDER BY login_time DESC LIMIT 10
+    ''', (user_id,)).fetchall()
+
+    # Alerts
+    alerts = conn.execute('''
+        SELECT * FROM alerts
+        WHERE user_id=?
+        ORDER BY timestamp DESC LIMIT 10
+    ''', (user_id,)).fetchall()
+
+    # Profile
+    profile = conn.execute('''
+        SELECT * FROM user_profiles
+        WHERE user_id=?
+    ''', (user_id,)).fetchone()
+
+    # Stats
+    stats = conn.execute('''
+        SELECT
+            AVG(trust_score)  as avg_trust,
+            MIN(trust_score)  as min_trust,
+            MAX(trust_score)  as max_trust,
+            AVG(wpm)          as avg_wpm,
+            AVG(dwell_time)   as avg_dwell,
+            AVG(flight_time)  as avg_flight,
+            AVG(error_rate)   as avg_error,
+            COUNT(*)          as total_windows
+        FROM keystroke_logs
+        WHERE user_id=?
+    ''', (user_id,)).fetchone()
+
+    conn.close()
+
+    return render_template(
+        'employee_stats.html',
+        employee      = dict(user),
+        logs          = logs,
+        sessions_list = sessions_list,
+        alerts        = alerts,
+        profile       = dict(profile)
+                        if profile else None,
+        stats         = dict(stats)
+                        if stats else None,
+        username      = session['username'],
+        company       = session.get('company', '')
+    )
 
 # ── Logout ────────────────────────────────────────────────────────
 @app.route('/logout')

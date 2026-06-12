@@ -11,7 +11,6 @@
 <body>
 <div class="app-layout">
 
-    <!-- ── Sidebar ── -->
     <aside class="sidebar">
         <div class="sidebar-logo">
             <div class="logo-icon">🛡️</div>
@@ -24,7 +23,8 @@
             </a>
             <a href="#" class="nav-item"
                onclick="showSection('users', event)">
-                <span class="nav-icon">👥</span> Employees
+                <span class="nav-icon">👥</span>
+                Employees
             </a>
             <a href="#" class="nav-item"
                onclick="showSection('locations', event)">
@@ -68,7 +68,6 @@
         </div>
     </aside>
 
-    <!-- ── Main Area ── -->
     <div class="main-area">
 
         <header class="topbar">
@@ -94,7 +93,7 @@
             </div>
         </header>
 
-        <!-- ── Overview Section ── -->
+        <!-- ── Overview ── -->
         <div id="section-overview"
              class="content-grid">
 
@@ -193,7 +192,7 @@
 
         </div>
 
-        <!-- ── Employees Section ── -->
+        <!-- ── Employees ── -->
         <div id="section-users"
              class="admin-section">
             <div class="card">
@@ -204,18 +203,23 @@
                                  padding:4px 12px;
                                  border-radius:20px;
                                  font-size:12px">
-                        Company Code:
+                        Code:
                         <strong>{{ company_code }}</strong>
                     </span>
                 </div>
                 <p style="color:#888;font-size:13px;
                           margin-bottom:16px">
-                    Share the company code above
-                    with employees to let them
-                    register at
+                    Share the company code with employees
+                    to let them register at
                     <strong style="color:#6c63ff">
                         /register/user
+                    </strong>.
+                    Click
+                    <strong style="color:#6c63ff">
+                        📊 Stats
                     </strong>
+                    to view detailed analytics
+                    for any employee.
                 </p>
                 <table class="admin-table">
                     <thead>
@@ -246,7 +250,8 @@
                                             align-items:center;
                                             justify-content:center;
                                             font-size:12px;
-                                            font-weight:700">
+                                            font-weight:700;
+                                            flex-shrink:0">
                                     {{ user.username[0]
                                        .upper() }}
                                 </div>
@@ -258,8 +263,9 @@
                             {{ user.email }}
                         </td>
                         <td style="font-size:12px;
-                                   color:#666">
-                            {{ user.last_login or '--' }}
+                                   color:#aaa">
+                            {{ user.last_login
+                               | timeformat }}
                         </td>
                         <td style="font-size:12px">
                             {% if user.city %}
@@ -269,8 +275,7 @@
                         </td>
                         <td style="font-size:12px;
                                    color:#888">
-                            {{ user.browser or '--' }}
-                            /
+                            {{ user.browser or '--' }} /
                             {{ user.device or '--' }}
                         </td>
                         <td>
@@ -318,6 +323,14 @@
                             {% endif %}
                         </td>
                         <td>
+                            <a href="/admin/employee/{{ user.id }}"
+                               class="btn-action"
+                               style="background:#6c63ff;
+                                      color:#fff;
+                                      text-decoration:none;
+                                      display:inline-block">
+                                📊 Stats
+                            </a>
                             {% if user.is_blocked %}
                             <button
                                 class="btn-action btn-unblock"
@@ -348,7 +361,7 @@
             </div>
         </div>
 
-        <!-- ── Login Locations Section ── -->
+        <!-- ── Login Locations ── -->
         <div id="section-locations"
              class="admin-section">
             <div class="card">
@@ -373,8 +386,9 @@
                     <tr>
                         <td>{{ loc.username }}</td>
                         <td style="font-size:12px;
-                                   color:#666">
-                            {{ loc.login_time }}
+                                   color:#aaa">
+                            {{ loc.login_time
+                               | timeformat }}
                         </td>
                         <td>
                             {{ loc.city or 'Unknown' }}
@@ -416,7 +430,7 @@
             </div>
         </div>
 
-        <!-- ── Auth Logs Section ── -->
+        <!-- ── Auth Logs ── -->
         <div id="section-logs"
              class="admin-section">
             <div class="card">
@@ -427,12 +441,12 @@
                     <thead>
                         <tr>
                             <th>Employee</th>
-                            <th>Dwell Time</th>
-                            <th>Flight Time</th>
+                            <th>Dwell</th>
+                            <th>Flight</th>
                             <th>WPM</th>
                             <th>Trust Score</th>
-                            <th>Risk Level</th>
-                            <th>Timestamp</th>
+                            <th>Risk</th>
+                            <th>Time</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -466,7 +480,7 @@
                             </span>
                         </td>
                         <td>
-                            {% if log.trust_score >= 70 %}
+                            {% if log.trust_score >= 75 %}
                             <span style="color:#4caf50;
                                         font-size:12px">
                                 Safe
@@ -489,8 +503,9 @@
                             {% endif %}
                         </td>
                         <td style="font-size:12px;
-                                   color:#666">
-                            {{ log.timestamp }}
+                                   color:#aaa">
+                            {{ log.timestamp
+                               | timeformat }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -499,7 +514,7 @@
             </div>
         </div>
 
-        <!-- ── Alerts Section ── -->
+        <!-- ── Alerts ── -->
         <div id="section-alerts"
              class="admin-section">
             <div class="card">
@@ -545,8 +560,9 @@
                             {{ alert.message }}
                         </td>
                         <td style="font-size:12px;
-                                   color:#666">
-                            {{ alert.timestamp }}
+                                   color:#aaa">
+                            {{ alert.timestamp
+                               | timeformat }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -556,7 +572,8 @@
                 <div style="text-align:center;
                             padding:60px 20px">
                     <div style="font-size:48px;
-                                margin-bottom:16px">✅</div>
+                                margin-bottom:16px">✅
+                    </div>
                     <h3 style="color:#fff;
                                margin-bottom:8px">
                         No alerts!
@@ -569,7 +586,7 @@
             </div>
         </div>
 
-        <!-- ── Attack Simulation Section ── -->
+        <!-- ── Attack Simulation ── -->
         <div id="section-simulation"
              class="admin-section">
 
@@ -581,7 +598,7 @@
                 <p style="color:#888;font-size:13px;
                           margin-bottom:20px">
                     Simulate attacks to test your
-                    security system's detection
+                    security system detection
                     capabilities. Safe testing only.
                 </p>
 
@@ -596,8 +613,8 @@
                              'password_sharing')">
                         <div class="sim-icon">🔑</div>
                         <h4>Password Sharing Attack</h4>
-                        <p>Someone else uses your
-                           employee's stolen credentials</p>
+                        <p>Someone uses your employee's
+                           stolen credentials</p>
                         <span class="sim-badge danger">
                             High Risk
                         </span>
@@ -620,8 +637,8 @@
                              'unknown_location')">
                         <div class="sim-icon">📍</div>
                         <h4>Unknown Location Login</h4>
-                        <p>Login attempt from an
-                           unrecognized location</p>
+                        <p>Login from an unrecognized
+                           location detected</p>
                         <span class="sim-badge warning">
                             Medium Risk
                         </span>
@@ -716,8 +733,9 @@
                             {{ sim.response }}
                         </td>
                         <td style="font-size:12px;
-                                   color:#666">
-                            {{ sim.timestamp }}
+                                   color:#aaa">
+                            {{ sim.timestamp
+                               | timeformat }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -728,7 +746,7 @@
 
         </div>
 
-        <!-- ── Settings Section ── -->
+        <!-- ── Settings ── -->
         <div id="section-settings"
              class="admin-section">
             <div class="card"
@@ -765,7 +783,7 @@
                     <label>Confirm Password</label>
                     <input type="password"
                            id="confirm-password"
-                           placeholder="Confirm new password">
+                           placeholder="Confirm password">
                 </div>
 
                 <div id="cred-msg"
@@ -842,18 +860,18 @@ if (ctx) {
                        'lt', 25) | list | length }},
                     {{ logs | selectattr('trust_score',
                        'ge', 25) | selectattr(
-                       'trust_score', 'lt', 50)
+                       'trust_score','lt',50)
                        | list | length }},
                     {{ logs | selectattr('trust_score',
                        'ge', 50) | selectattr(
-                       'trust_score', 'lt', 70)
+                       'trust_score','lt',70)
                        | list | length }},
                     {{ logs | selectattr('trust_score',
                        'ge', 70) | list | length }}
                 ],
                 backgroundColor: [
-                    '#ff1744', '#f44336',
-                    '#ff9800', '#4caf50'
+                    '#ff1744','#f44336',
+                    '#ff9800','#4caf50'
                 ]
             }]
         },
@@ -931,14 +949,17 @@ function runSimulation(attackType) {
             ? data.details.anomaly_features
                 .map(f => `
                 <span style="background:#2a2a2a;
-                    padding:3px 8px;border-radius:4px;
+                    padding:3px 8px;
+                    border-radius:4px;
                     font-size:12px;color:#ccc;
-                    margin:2px;display:inline-block">
+                    margin:2px;
+                    display:inline-block">
                     ${f}
                 </span>`).join('')
             : '';
 
-        const detailsHtml = Object.entries(data.details)
+        const detailsHtml =
+            Object.entries(data.details)
             .filter(([k]) => k !== 'anomaly_features')
             .map(([k, v]) => `
             <div class="score-row">
@@ -969,7 +990,8 @@ function runSimulation(attackType) {
                         ${data.name}
                     </h3>
                     <p style="color:#888;
-                              font-size:13px;margin:0">
+                              font-size:13px;
+                              margin:0">
                         ${data.description}
                     </p>
                 </div>
@@ -979,8 +1001,7 @@ function runSimulation(attackType) {
                              border-radius:20px;
                              font-size:13px;
                              font-weight:600">
-                    ✅ ${data.detected
-                        ? 'DETECTED' : 'NOT DETECTED'}
+                    ✅ DETECTED
                 </span>
             </div>
 
@@ -1074,7 +1095,8 @@ function runSimulation(attackType) {
                     <div>${anomalyList}</div>
                     <div style="margin-top:16px;
                                 padding-top:16px;
-                                border-top:1px solid #333">
+                                border-top:
+                                    1px solid #333">
                         <p style="color:#888;
                                   font-size:12px;
                                   margin-bottom:6px">
