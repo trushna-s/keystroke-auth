@@ -10,7 +10,6 @@
 <body>
 <div class="app-layout">
 
-    <!-- ── Sidebar ── -->
     <aside class="sidebar">
         <div class="sidebar-logo">
             <div class="logo-icon">🛡️</div>
@@ -42,6 +41,11 @@
                 </span>
                 {% endif %}
             </a>
+            <a href="#" class="nav-item"
+               onclick="showTab('integrate', event)">
+                <span class="nav-icon">🔗</span>
+                Integrate
+            </a>
         </nav>
         <div class="sidebar-user">
             <div class="user-avatar">
@@ -56,7 +60,6 @@
         </div>
     </aside>
 
-    <!-- ── Main Area ── -->
     <div class="main-area">
 
         <header class="topbar">
@@ -72,9 +75,8 @@
         <div id="tab-workspace"
              style="padding:24px 28px">
 
-            <!-- Welcome Card -->
             <div style="background:linear-gradient(
-                            135deg, #1a1a2e, #16213e);
+                            135deg,#1a1a2e,#16213e);
                         border:1px solid #2a2a4a;
                         border-radius:16px;
                         padding:28px;
@@ -89,11 +91,9 @@
                         Good day, {{ username }}! 👋
                     </h2>
                     <p style="color:#888;
-                              font-size:14px;
-                              margin:0">
-                        Your session is being
-                        monitored securely in
-                        the background.
+                              font-size:14px;margin:0">
+                        Your session is being monitored
+                        securely in the background.
                     </p>
                 </div>
                 <div style="text-align:right">
@@ -106,15 +106,13 @@
                                 font-weight:600">
                         ● Session Secure
                     </div>
-                    <p style="color:#666;
-                              font-size:11px;
+                    <p style="color:#666;font-size:11px;
                               margin-top:6px">
                         Continuous authentication active
                     </p>
                 </div>
             </div>
 
-            <!-- Work Area -->
             <div class="card">
                 <div class="card-header">
                     <h3>📝 Work Area</h3>
@@ -132,27 +130,21 @@
                 <textarea
                     id="typing-test"
                     placeholder="Start typing your work here..."
-                    style="width:100%;
-                           height:300px;
+                    style="width:100%;height:300px;
                            background:#1a1a1a;
                            border:1px solid #2a2a2a;
                            border-radius:10px;
-                           color:#fff;
-                           font-size:15px;
-                           padding:16px;
-                           outline:none;
+                           color:#fff;font-size:15px;
+                           padding:16px;outline:none;
                            resize:vertical;
                            font-family:Segoe UI,sans-serif;
                            line-height:1.6">
                 </textarea>
-
-                <!-- Silent status indicator -->
                 <div id="activity-feed"
                      style="margin-top:10px;
                             display:flex;
                             flex-direction:column;
-                            gap:6px;
-                            max-height:80px;
+                            gap:6px;max-height:80px;
                             overflow:hidden">
                 </div>
             </div>
@@ -200,8 +192,7 @@
                                 <p style="color:#fff;
                                           font-size:14px;
                                           font-weight:600;
-                                          margin-bottom:
-                                              4px">
+                                          margin-bottom:4px">
                                     {{ s.browser
                                        or 'Unknown' }}
                                     on
@@ -221,9 +212,10 @@
                         </div>
                         <div style="text-align:right">
                             <p style="color:#666;
-                                      font-size:12px;
+                                      font-size:13px;
                                       margin-bottom:6px">
-                                {{ s.login_time }}
+                                {{ s.login_time
+                                   | timeformat }}
                             </p>
                             {% if s.status == 'active' %}
                             <span style="background:#1a2e1a;
@@ -286,7 +278,9 @@
                                    == 'NEW_LOCATION' %}
                                     #ff9800
                                 {% elif alert.alert_type
-                                   == 'SESSION_TERMINATED'%}
+                                   == 'SESSION_TERMINATED'
+                                   or alert.alert_type
+                                   == 'AUTO_BLOCKED' %}
                                     #f44336
                                 {% else %}
                                     #6c63ff
@@ -303,13 +297,17 @@
                                 {% elif alert.alert_type
                                    == 'SESSION_TERMINATED'%}
                                     🚫 Session Terminated
+                                {% elif alert.alert_type
+                                   == 'AUTO_BLOCKED' %}
+                                    🔒 Account Auto-Blocked
                                 {% else %}
                                     ⚠️ Security Alert
                                 {% endif %}
                             </strong>
                             <small style="color:#666;
                                           font-size:12px">
-                                {{ alert.timestamp }}
+                                {{ alert.timestamp
+                                   | timeformat }}
                             </small>
                         </div>
                         <p style="color:#aaa;
@@ -341,6 +339,179 @@
             </div>
         </div>
 
+        <!-- ── Integrate Tab ── -->
+        <div id="tab-integrate"
+             style="display:none;padding:24px 28px">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔗 External Website Integration</h3>
+                </div>
+                <p style="color:#888;font-size:14px;
+                          margin-bottom:24px;
+                          line-height:1.6">
+                    Add KeyAuth continuous authentication
+                    to any website. Paste the script below
+                    into your website's HTML and your
+                    typing will be monitored there too.
+                </p>
+
+                <!-- Step 1 -->
+                <div style="background:#222;
+                            border-radius:12px;
+                            padding:20px;
+                            margin-bottom:16px;
+                            border:1px solid #2a2a2a">
+                    <h4 style="color:#fff;
+                               margin-bottom:12px;
+                               font-size:14px">
+                        Step 1 — Get Your Token
+                    </h4>
+                    <button class="btn-start"
+                            onclick="getMyToken()"
+                            style="margin-bottom:12px">
+                        🔑 Generate My Token
+                    </button>
+                    <div id="token-display"
+                         style="display:none">
+                        <div style="background:#1a1a1a;
+                                    border:1px solid #444;
+                                    border-radius:8px;
+                                    padding:12px;
+                                    margin-top:10px">
+                            <p style="color:#888;
+                                      font-size:12px;
+                                      margin-bottom:6px">
+                                Your Token:
+                            </p>
+                            <code id="user-token"
+                                  style="color:#4caf50;
+                                         font-size:13px;
+                                         word-break:
+                                             break-all">
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div style="background:#222;
+                            border-radius:12px;
+                            padding:20px;
+                            margin-bottom:16px;
+                            border:1px solid #2a2a2a">
+                    <h4 style="color:#fff;
+                               margin-bottom:12px;
+                               font-size:14px">
+                        Step 2 — Add to Your Website
+                    </h4>
+                    <p style="color:#888;font-size:13px;
+                              margin-bottom:12px">
+                        Copy this and paste before
+                        <code style="color:#6c63ff">
+                            &lt;/body&gt;
+                        </code>
+                        in your website HTML:
+                    </p>
+                    <div style="background:#1a1a1a;
+                                border:1px solid #444;
+                                border-radius:8px;
+                                padding:16px;
+                                position:relative">
+                        <code id="sdk-code"
+                              style="color:#4caf50;
+                                     font-size:12px;
+                                     white-space:pre-wrap;
+                                     word-break:break-all;
+                                     display:block">
+&lt;script
+  src="http://localhost:5000/static/js/keyauth-sdk.js"
+  data-company-code="{{ company }}"
+  data-user-token="Click Generate Token first"&gt;
+&lt;/script&gt;
+                        </code>
+                        <button onclick="copySDKCode()"
+                                style="position:absolute;
+                                       top:10px;right:10px;
+                                       background:#6c63ff;
+                                       color:#fff;
+                                       border:none;
+                                       border-radius:6px;
+                                       padding:6px 12px;
+                                       font-size:12px;
+                                       cursor:pointer">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div style="background:#222;
+                            border-radius:12px;
+                            padding:20px;
+                            border:1px solid #2a2a2a">
+                    <h4 style="color:#fff;
+                               margin-bottom:16px;
+                               font-size:14px">
+                        Step 3 — How It Works
+                    </h4>
+                    <div style="display:flex;
+                                flex-direction:column;
+                                gap:12px">
+                        <div style="display:flex;
+                                    gap:12px;
+                                    align-items:
+                                        flex-start">
+                            <span style="font-size:20px">
+                                ⌨️
+                            </span>
+                            <p style="color:#aaa;
+                                      font-size:13px;
+                                      margin:0;
+                                      line-height:1.5">
+                                As you type on the
+                                external website, KeyAuth
+                                captures keystroke patterns
+                                silently in background.
+                            </p>
+                        </div>
+                        <div style="display:flex;
+                                    gap:12px;
+                                    align-items:
+                                        flex-start">
+                            <span style="font-size:20px">
+                                🔒
+                            </span>
+                            <p style="color:#aaa;
+                                      font-size:13px;
+                                      margin:0;
+                                      line-height:1.5">
+                                Your pattern is compared
+                                to your enrolled profile
+                                in real-time.
+                            </p>
+                        </div>
+                        <div style="display:flex;
+                                    gap:12px;
+                                    align-items:
+                                        flex-start">
+                            <span style="font-size:20px">
+                                📊
+                            </span>
+                            <p style="color:#aaa;
+                                      font-size:13px;
+                                      margin:0;
+                                      line-height:1.5">
+                                All activity logs to your
+                                admin dashboard
+                                automatically.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -349,9 +520,8 @@
     <div class="modal-box">
         <div class="modal-icon">🔐</div>
         <h2>Verify It's You</h2>
-        <p>We detected unusual activity.
-           An OTP has been sent to your
-           registered email.</p>
+        <p>We detected unusual activity. An OTP
+           has been sent to your registered email.</p>
         <input type="text"
                id="otp-input"
                maxlength="6"
@@ -381,9 +551,10 @@
 <script>
 // ── Tab Navigation ────────────────────────────────────────────────
 const tabTitles = {
-    workspace: 'My Workspace',
-    history:   'Login History',
-    alerts:    'My Alerts'
+    workspace:  'My Workspace',
+    history:    'Login History',
+    alerts:     'My Alerts',
+    integrate:  'External Integration'
 };
 
 function showTab(name, event) {
@@ -403,15 +574,14 @@ function showTab(name, event) {
     }
 
     document.getElementById('tab-title')
-        .textContent = tabTitles[name] || 'Workspace';
+        .textContent =
+        tabTitles[name] || 'Workspace';
 }
 
-// ── Silent Trust Score Handler ────────────────────────────────────
-// No charts shown to user
-// Just update session status silently
+// ── Silent Trust Score ────────────────────────────────────────────
 function updateCharts(score) {
-    score = Math.min(100, Math.max(0,
-            parseFloat(score)));
+    score = Math.min(100,
+            Math.max(0, parseFloat(score)));
 
     const statusEl =
         document.getElementById('session-status');
@@ -420,37 +590,35 @@ function updateCharts(score) {
 
     if (!statusEl) return;
 
-    if (score >= 70) {
-        statusEl.textContent        = '● Session Secure';
-        statusEl.style.background   = '#1a2e1a';
-        statusEl.style.color        = '#4caf50';
+    if (score >= 75) {
+        statusEl.textContent      = '● Session Secure';
+        statusEl.style.background = '#1a2e1a';
+        statusEl.style.color      = '#4caf50';
         if (badgeEl) {
             badgeEl.textContent = '● Monitoring Active';
             badgeEl.style.color = '#4caf50';
         }
     } else if (score >= 50) {
-        statusEl.textContent        = '⚠️ Verifying...';
-        statusEl.style.background   = '#2e2a1a';
-        statusEl.style.color        = '#ff9800';
+        statusEl.textContent      = '⚠️ Verifying...';
+        statusEl.style.background = '#2e2a1a';
+        statusEl.style.color      = '#ff9800';
     } else if (score >= 25) {
-        statusEl.textContent        = '🚨 Verification Required';
-        statusEl.style.background   = '#2e1a1a';
-        statusEl.style.color        = '#f44336';
+        statusEl.textContent      =
+            '🚨 Verification Required';
+        statusEl.style.background = '#2e1a1a';
+        statusEl.style.color      = '#f44336';
     } else {
-        statusEl.textContent        = '⛔ Session Ending';
-        statusEl.style.background   = '#1a0000';
-        statusEl.style.color        = '#ff1744';
+        statusEl.textContent      = '⛔ Session Ending';
+        statusEl.style.background = '#1a0000';
+        statusEl.style.color      = '#ff1744';
     }
 }
 
-// XAI not shown to user — silent
-function updateExplanation(explanation, trustScore) {
-    // intentionally empty for user workspace
-}
+// XAI silent for user
+function updateExplanation(explanation, trustScore) {}
 
-// ── Silent Activity Feed ──────────────────────────────────────────
+// ── Activity Feed ─────────────────────────────────────────────────
 function addActivity(message, type = 'success') {
-    // Only show critical messages to user
     if (type !== 'danger' && type !== 'warning') return;
 
     const feed =
@@ -464,7 +632,6 @@ function addActivity(message, type = 'success') {
         `${new Date().toLocaleTimeString()} — ${message}`;
     feed.prepend(item);
 
-    // Keep only last 3
     while (feed.children.length > 3) {
         feed.removeChild(feed.lastChild);
     }
@@ -476,7 +643,6 @@ let otpCountdown = null;
 function showOTPModal() {
     if (window.otpModalShowing) return;
     window.otpModalShowing = true;
-
     document.getElementById('otp-modal')
         .style.display = 'flex';
     document.getElementById('otp-input').value       = '';
@@ -565,23 +731,41 @@ function resendOTP() {
         }
     });
 }
-</script>
-</body>
-</html>
-function resendOTP() {
-    fetch('/send_otp', { method: 'POST' })
+
+// ── SDK Integration ───────────────────────────────────────────────
+function getMyToken() {
+    fetch('/api/get-token')
     .then(r => r.json())
     .then(data => {
-        const errorEl =
-            document.getElementById('otp-error');
-        if (data.success) {
-            errorEl.style.color = '#4caf50';
-            errorEl.textContent = 'New OTP sent!';
-            startCountdown(300);
-        } else {
-            errorEl.style.color = '#ff6b6b';
-            errorEl.textContent = 'Failed.';
+        if (data.token) {
+            document.getElementById(
+                'user-token').textContent = data.token;
+            document.getElementById(
+                'token-display').style.display = 'block';
+
+            // Update SDK code with real values
+            const sdkCode =
+                document.getElementById('sdk-code');
+            if (sdkCode) {
+                sdkCode.textContent =
+                    `<script\n` +
+                    `  src="http://localhost:5000` +
+                    `/static/js/keyauth-sdk.js"\n` +
+                    `  data-company-code=` +
+                    `"${data.company_code}"\n` +
+                    `  data-user-token=` +
+                    `"${data.token}">\n` +
+                    `<\/script>`;
+            }
         }
+    });
+}
+
+function copySDKCode() {
+    const code = document.getElementById(
+        'sdk-code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        alert('✅ SDK code copied to clipboard!');
     });
 }
 </script>

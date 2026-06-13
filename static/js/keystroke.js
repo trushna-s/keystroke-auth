@@ -5,9 +5,12 @@ let keydownTimes   = {};
 let backspaceCount = 0;
 const windowSize   = 25;
 
-// Only 2 consecutive bad windows → logout
+// 2 consecutive bad windows → logout
 const scoreHistory = [];
 const historyLimit = 2;
+
+// Track last trust score
+let lastTrustScore = 100;
 
 document.addEventListener('keydown', function(e) {
     const key  = e.key;
@@ -57,6 +60,8 @@ function sendKeystrokeData(data) {
             '| Status:', result.status
         );
 
+        lastTrustScore = result.trust_score;
+
         if (result.explanation &&
             typeof updateExplanation === 'function') {
             updateExplanation(
@@ -66,11 +71,51 @@ function sendKeystrokeData(data) {
         }
 
         processTrustScore(result);
+
+        // Only update profile if trust is high
+        // Prevents hacker from poisoning profile
+        if (result.trust_score >= 70) {
+            updateProfile(
+                data,
+                backspaceCount,
+                result.trust_score
+            );
+        } else {
+            console.log(
+                '⚠️ Profile update skipped — ' +
+                'trust too low: ' +
+                result.trust_score + '%'
+            );
+        }
     })
     .catch(err => console.error('Error:', err));
 }
 
-// ── Rolling Window — 2 strikes and out ───────────────────────────
+// ── Update Profile (only when trust is high) ──────────────────────
+function updateProfile(ks, bc, trustScore) {
+    fetch('/update_profile', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+            keystrokes:      ks,
+            backspace_count: bc,
+            trust_score:     trustScore
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Profile updated');
+        } else {
+            console.log(
+                '⚠️ Profile update skipped:',
+                data.reason
+            );
+        }
+    });
+}
+
+// ── Rolling Window ────────────────────────────────────────────────
 function processTrustScore(result) {
     const score  = Math.min(100, Math.max(0,
                    parseFloat(result.trust_score)));
@@ -145,10 +190,11 @@ function handleTrustUpdate(score, status) {
     } else if (status === 'terminate') {
         if (typeof addActivity === 'function') {
             addActivity(
-                '🚫 Session terminated — logging out',
+                '🚫 Session terminated',
                 'danger'
             );
         }
+
         fetch('/log_incident', {
             method:  'POST',
             headers: {
@@ -158,7 +204,20 @@ function handleTrustUpdate(score, status) {
                 reason: 'Trust score critically low',
                 score:  score
             })
-        }).finally(() => {
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.auto_blocked) {
+                alert(
+                    '🚨 Your account has been ' +
+                    'temporarily blocked due to ' +
+                    'multiple suspicious login ' +
+                    'attempts. Please contact ' +
+                    'your administrator.'
+                );
+            }
+        })
+        .finally(() => {
             setTimeout(() => {
                 window.location.href = '/logout';
             }, 2000);

@@ -116,10 +116,10 @@ def get_location_from_ip(ip):
 
 def get_browser_info():
     ua      = request.headers.get('User-Agent', '')
-    browser = ('Chrome'   if 'Chrome'   in ua else
-               'Firefox'  if 'Firefox'  in ua else
-               'Safari'   if 'Safari'   in ua else
-               'Edge'     if 'Edge'     in ua else
+    browser = ('Chrome'  if 'Chrome'  in ua else
+               'Firefox' if 'Firefox' in ua else
+               'Safari'  if 'Safari'  in ua else
+               'Edge'    if 'Edge'    in ua else
                'Unknown')
     device  = ('Mobile'  if 'Mobile'  in ua or
                             'Android' in ua else
@@ -167,7 +167,6 @@ def register_admin():
             request.form['password'])
 
         code = generate_company_code(company_name)
-
         conn = get_db()
         while conn.execute(
             '''SELECT id FROM companies
@@ -235,7 +234,7 @@ def register_user():
         if not company:
             conn.close()
             error = ('Invalid company code. '
-                     'Please check with your admin.')
+                     'Check with your admin.')
             return render_template(
                 'register_user.html', error=error)
 
@@ -261,7 +260,6 @@ def register_user():
         'register_user.html', error=error)
 
 
-# ── Old register redirect ─────────────────────────────────────────
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     return redirect(url_for('register_user'))
@@ -436,6 +434,7 @@ def login():
             session['session_id']  = session_id
             session['company']     = company_name
             session['company_id']  = user['company_id']
+            session['company_code'] = user['company_code'] or ''
 
             if user['is_admin']:
                 return redirect(
@@ -623,7 +622,77 @@ def admin_dashboard():
     )
 
 
-# ── Admin Block/Unblock/Delete ────────────────────────────────────
+# ── Employee Stats ────────────────────────────────────────────────
+@app.route('/admin/employee/<int:user_id>')
+@admin_required
+def employee_stats(user_id):
+    conn       = get_db()
+    company_id = session.get('company_id')
+
+    user = conn.execute('''
+        SELECT * FROM users
+        WHERE id=? AND company_id=? AND is_admin=0
+    ''', (user_id, company_id)).fetchone()
+
+    if not user:
+        conn.close()
+        return redirect(url_for('admin_dashboard'))
+
+    logs = conn.execute('''
+        SELECT * FROM keystroke_logs
+        WHERE user_id=?
+        ORDER BY timestamp DESC LIMIT 50
+    ''', (user_id,)).fetchall()
+
+    sessions_list = conn.execute('''
+        SELECT * FROM sessions
+        WHERE user_id=?
+        ORDER BY login_time DESC LIMIT 10
+    ''', (user_id,)).fetchall()
+
+    alerts = conn.execute('''
+        SELECT * FROM alerts
+        WHERE user_id=?
+        ORDER BY timestamp DESC LIMIT 10
+    ''', (user_id,)).fetchall()
+
+    profile = conn.execute('''
+        SELECT * FROM user_profiles
+        WHERE user_id=?
+    ''', (user_id,)).fetchone()
+
+    stats = conn.execute('''
+        SELECT
+            AVG(trust_score)  as avg_trust,
+            MIN(trust_score)  as min_trust,
+            MAX(trust_score)  as max_trust,
+            AVG(wpm)          as avg_wpm,
+            AVG(dwell_time)   as avg_dwell,
+            AVG(flight_time)  as avg_flight,
+            AVG(error_rate)   as avg_error,
+            COUNT(*)          as total_windows
+        FROM keystroke_logs
+        WHERE user_id=?
+    ''', (user_id,)).fetchone()
+
+    conn.close()
+
+    return render_template(
+        'employee_stats.html',
+        employee      = dict(user),
+        logs          = logs,
+        sessions_list = sessions_list,
+        alerts        = alerts,
+        profile       = dict(profile)
+                        if profile else None,
+        stats         = dict(stats)
+                        if stats else None,
+        username      = session['username'],
+        company       = session.get('company', '')
+    )
+
+
+# ── Admin Actions ─────────────────────────────────────────────────
 @app.route('/admin/block/<int:user_id>',
            methods=['POST'])
 @admin_required
@@ -658,7 +727,8 @@ def unblock_user(user_id):
 def delete_user(user_id):
     conn = get_db()
     for table in ['keystroke_logs', 'user_profiles',
-                  'otp_tokens', 'sessions', 'alerts']:
+                  'otp_tokens', 'sessions', 'alerts',
+                  'failed_sessions']:
         conn.execute(
             f'DELETE FROM {table} WHERE user_id=?',
             (user_id,)
@@ -670,7 +740,6 @@ def delete_user(user_id):
     return jsonify({'success': True})
 
 
-# ── Admin Export ──────────────────────────────────────────────────
 @app.route('/admin/export')
 @admin_required
 def export_logs():
@@ -709,7 +778,6 @@ def export_logs():
     )
 
 
-# ── Admin Change Credentials ──────────────────────────────────────
 @app.route('/admin/change-credentials',
            methods=['POST'])
 @admin_required
@@ -984,7 +1052,7 @@ def analyze_keystrokes():
     })
 
 
-# ── Log Incident ──────────────────────────────────────────────────
+# ── Log Incident + Auto Block ─────────────────────────────────────
 @app.route('/log_incident', methods=['POST'])
 def log_incident():
     if 'user_id' not in session:
@@ -995,6 +1063,8 @@ def log_incident():
     score  = data.get('score', 0)
 
     conn = get_db()
+
+    # Log alert
     conn.execute('''
         INSERT INTO alerts
         (user_id, session_id, alert_type, message)
@@ -1006,16 +1076,67 @@ def log_incident():
         f'Session terminated. {reason}. '
         f'Score: {score}%'
     ))
+
+    # Track failed session
+    conn.execute('''
+        INSERT INTO failed_sessions
+        (user_id, reason)
+        VALUES (?, ?)
+    ''', (
+        session['user_id'],
+        f'{reason} — Score: {score}%'
+    ))
+
+    # Update session status
     conn.execute('''
         UPDATE sessions
         SET status='terminated',
             logout_time=CURRENT_TIMESTAMP
         WHERE id=?
     ''', (session.get('session_id', 0),))
+
+    # Check recent failures — 30 min window
+    recent_failures = conn.execute('''
+        SELECT COUNT(*) as c FROM failed_sessions
+        WHERE user_id=?
+        AND timestamp >= datetime('now','-30 minutes')
+    ''', (session['user_id'],)).fetchone()['c']
+
+    auto_blocked = False
+
+    # Auto block after 3 failed sessions
+    if recent_failures >= 3:
+        conn.execute('''
+            UPDATE users SET is_blocked=1 WHERE id=?
+        ''', (session['user_id'],))
+
+        conn.execute('''
+            INSERT INTO alerts
+            (user_id, session_id,
+             alert_type, message)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            session['user_id'],
+            session.get('session_id', 0),
+            'AUTO_BLOCKED',
+            f'Account auto-blocked after '
+            f'{recent_failures} suspicious sessions '
+            f'in 30 minutes. Possible unauthorized '
+            f'access attempt.'
+        ))
+
+        auto_blocked = True
+        print(f"🚨 AUTO BLOCKED: "
+              f"{session['username']} — "
+              f"{recent_failures} failures")
+
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True})
+    return jsonify({
+        'success':      True,
+        'auto_blocked': auto_blocked
+    })
 
 
 # ── Send OTP ──────────────────────────────────────────────────────
@@ -1119,7 +1240,7 @@ def verify_otp():
         })
 
 
-# ── Update Profile ────────────────────────────────────────────────
+# ── Update Profile (only when trust is high) ──────────────────────
 @app.route('/update_profile', methods=['POST'])
 def update_profile():
     if 'user_id' not in session:
@@ -1128,6 +1249,17 @@ def update_profile():
     data            = request.get_json()
     keystrokes      = data.get('keystrokes', [])
     backspace_count = data.get('backspace_count', 0)
+    trust_score     = data.get('trust_score', 0)
+
+    # Block profile update if trust is low
+    # Prevents hacker from poisoning the model
+    if trust_score < 70:
+        print(f"⚠️ Profile update blocked — "
+              f"trust: {trust_score}%")
+        return jsonify({
+            'success': False,
+            'reason':  'Trust too low to update profile'
+        })
 
     features = extract_features_from_raw(
         keystrokes, backspace_count)
@@ -1160,83 +1292,123 @@ def update_profile():
     ))
     conn.commit()
     conn.close()
+
+    print(f"✅ Profile updated for "
+          f"{session['username']} "
+          f"(trust: {trust_score}%)")
     return jsonify({'success': True})
 
-# ── Employee Stats for Admin ──────────────────────────────────────
-@app.route('/admin/employee/<int:user_id>')
-@admin_required
-def employee_stats(user_id):
-    conn       = get_db()
-    company_id = session.get('company_id')
 
-    # Verify employee belongs to admin's company
+# ── Get SDK Token ─────────────────────────────────────────────────
+@app.route('/api/get-token')
+def get_sdk_token():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    token = hashlib.sha256(
+        f"{session['user_id']}"
+        f"{session['username']}"
+        f"{app.secret_key}".encode()
+    ).hexdigest()[:32]
+
+    return jsonify({
+        'token':        token,
+        'company_code': session.get('company_code', ''),
+        'username':     session['username']
+    })
+
+
+# ── External Website API ──────────────────────────────────────────
+@app.route('/api/external/analyze', methods=['POST'])
+def external_analyze():
+    company_code = request.headers.get(
+        'X-Company-Code', '')
+    user_token   = request.headers.get(
+        'X-User-Token', '')
+
+    if not company_code or not user_token:
+        return jsonify(
+            {'error': 'Missing credentials'}), 401
+
+    conn    = get_db()
+    company = conn.execute(
+        'SELECT * FROM companies WHERE company_code=?',
+        (company_code,)
+    ).fetchone()
+
+    if not company:
+        conn.close()
+        return jsonify(
+            {'error': 'Invalid company'}), 401
+
     user = conn.execute('''
         SELECT * FROM users
-        WHERE id=? AND company_id=?
-        AND is_admin=0
-    ''', (user_id, company_id)).fetchone()
+        WHERE company_code=?
+        AND is_blocked=0 AND is_enrolled=1
+        LIMIT 1
+    ''', (company_code,)).fetchone()
 
     if not user:
         conn.close()
-        return redirect(url_for('admin_dashboard'))
+        return jsonify(
+            {'error': 'User not found'}), 401
 
-    # Recent keystroke logs
-    logs = conn.execute('''
-        SELECT * FROM keystroke_logs
-        WHERE user_id=?
-        ORDER BY timestamp DESC LIMIT 50
-    ''', (user_id,)).fetchall()
+    data            = request.get_json()
+    keystrokes      = data.get('keystrokes', [])
+    backspace_count = data.get('backspace_count', 0)
+    page_url        = data.get('page_url', 'External')
 
-    # Recent sessions
-    sessions_list = conn.execute('''
-        SELECT * FROM sessions
-        WHERE user_id=?
-        ORDER BY login_time DESC LIMIT 10
-    ''', (user_id,)).fetchall()
+    features = extract_features_from_raw(
+        keystrokes, backspace_count)
 
-    # Alerts
-    alerts = conn.execute('''
-        SELECT * FROM alerts
-        WHERE user_id=?
-        ORDER BY timestamp DESC LIMIT 10
-    ''', (user_id,)).fetchall()
+    if not features:
+        conn.close()
+        return jsonify({
+            'trust_score': 75.0,
+            'status':      'allow',
+            'message':     'Not enough data'
+        })
 
-    # Profile
-    profile = conn.execute('''
-        SELECT * FROM user_profiles
-        WHERE user_id=?
-    ''', (user_id,)).fetchone()
+    profile = get_user_profile(user['id'])
 
-    # Stats
-    stats = conn.execute('''
-        SELECT
-            AVG(trust_score)  as avg_trust,
-            MIN(trust_score)  as min_trust,
-            MAX(trust_score)  as max_trust,
-            AVG(wpm)          as avg_wpm,
-            AVG(dwell_time)   as avg_dwell,
-            AVG(flight_time)  as avg_flight,
-            AVG(error_rate)   as avg_error,
-            COUNT(*)          as total_windows
-        FROM keystroke_logs
-        WHERE user_id=?
-    ''', (user_id,)).fetchone()
+    if not profile:
+        conn.close()
+        return jsonify({
+            'trust_score': 75.0,
+            'status':      'allow',
+            'message':     'No profile'
+        })
 
+    trust_score, explanation = compare_to_profile(
+        features, profile)
+    status, risk_level = get_risk_level(trust_score)
+
+    conn.execute('''
+        INSERT INTO keystroke_logs
+        (user_id, session_id, dwell_time,
+         flight_time, wpm, pause_count,
+         error_rate, trust_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user['id'], 0,
+        features['dwell_mean'],
+        features['dd_mean'],
+        features['wpm'],
+        features['pause_count'],
+        features['error_rate'],
+        trust_score
+    ))
+    conn.commit()
     conn.close()
 
-    return render_template(
-        'employee_stats.html',
-        employee      = dict(user),
-        logs          = logs,
-        sessions_list = sessions_list,
-        alerts        = alerts,
-        profile       = dict(profile)
-                        if profile else None,
-        stats         = dict(stats)
-                        if stats else None,
-        username      = session['username'],
-        company       = session.get('company', '')
-    )
+    return jsonify({
+        'trust_score': trust_score,
+        'status':      status,
+        'risk_level':  risk_level,
+        'source':      'external',
+        'page':        page_url
+    })
+
 
 # ── Logout ────────────────────────────────────────────────────────
 @app.route('/logout')
