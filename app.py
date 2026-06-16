@@ -14,13 +14,18 @@ from datetime import datetime, timedelta
 from features.extractor import (extract_features_from_raw,
                                  compare_to_profile,
                                  get_risk_level)
-from features.mailer import generate_otp, send_otp_email
+from features.mailer import (generate_otp,
+                              send_otp_email,
+                              send_user_alert_email,
+                              send_admin_alert_email)
 
 load_dotenv()
 
 app            = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY')
 DB_PATH        = os.getenv('DB_PATH')
+
+os.makedirs('database', exist_ok=True)
 
 
 # ── Time Format Filter ────────────────────────────────────────────
@@ -93,6 +98,18 @@ def get_user_email(user_id):
     return user['email'] if user else None
 
 
+def get_admin_info(company_id):
+    """Get admin email and username for a company"""
+    conn  = get_db()
+    admin = conn.execute('''
+        SELECT username, email FROM users
+        WHERE company_id=? AND is_admin=1
+        LIMIT 1
+    ''', (company_id,)).fetchone()
+    conn.close()
+    return dict(admin) if admin else None
+
+
 def get_location_from_ip(ip):
     try:
         if ip in ('127.0.0.1', 'localhost', '::1'):
@@ -141,6 +158,35 @@ def admin_required(f):
     return decorated
 
 
+def send_security_alerts(user_id, username,
+                          company_id, alert_type,
+                          trust_score, details=''):
+    """
+    Send email alerts to both user and admin
+    when security event occurs
+    """
+    try:
+        # Send to user
+        user_email = get_user_email(user_id)
+        if user_email:
+            send_user_alert_email(
+                user_email, username,
+                alert_type, trust_score, details
+            )
+
+        # Send to admin
+        admin = get_admin_info(company_id)
+        if admin:
+            send_admin_alert_email(
+                admin['email'],
+                admin['username'],
+                username, alert_type,
+                trust_score, details
+            )
+    except Exception as e:
+        print(f"Alert email error: {e}")
+
+
 # ── Routes ────────────────────────────────────────────────────────
 @app.route('/')
 def home():
@@ -169,8 +215,7 @@ def register_admin():
         code = generate_company_code(company_name)
         conn = get_db()
         while conn.execute(
-            '''SELECT id FROM companies
-               WHERE company_code=?''',
+            'SELECT id FROM companies WHERE company_code=?',
             (code,)
         ).fetchone():
             code = generate_company_code(company_name)
@@ -178,26 +223,21 @@ def register_admin():
         try:
             cursor = conn.execute(
                 '''INSERT INTO companies
-                   (name, company_code)
-                   VALUES (?, ?)''',
+                   (name, company_code) VALUES (?, ?)''',
                 (company_name, code)
             )
             company_id = cursor.lastrowid
-
             conn.execute('''
                 INSERT INTO users
                 (username, email, password,
                  is_admin, is_enrolled,
                  company_id, company_code, role)
                 VALUES (?, ?, ?, 1, 1, ?, ?, 'admin')
-            ''', (
-                username, email, password,
-                company_id, code
-            ))
+            ''', (username, email, password,
+                  company_id, code))
             conn.commit()
             success      = True
             company_code = code
-
         except sqlite3.IntegrityError:
             error = 'Username or email already exists!'
         finally:
@@ -205,9 +245,8 @@ def register_admin():
 
     return render_template(
         'register_admin.html',
-        error        = error,
-        success      = success,
-        company_code = company_code
+        error=error, success=success,
+        company_code=company_code
     )
 
 
@@ -215,7 +254,6 @@ def register_admin():
 @app.route('/register/user', methods=['GET', 'POST'])
 def register_user():
     error = None
-
     if request.method == 'POST':
         company_code = request.form[
             'company_code'].strip().upper()
@@ -226,15 +264,13 @@ def register_user():
 
         conn    = get_db()
         company = conn.execute(
-            '''SELECT * FROM companies
-               WHERE company_code=?''',
+            'SELECT * FROM companies WHERE company_code=?',
             (company_code,)
         ).fetchone()
 
         if not company:
             conn.close()
-            error = ('Invalid company code. '
-                     'Check with your admin.')
+            error = 'Invalid company code.'
             return render_template(
                 'register_user.html', error=error)
 
@@ -244,14 +280,11 @@ def register_user():
                 (username, email, password,
                  company_id, company_code, role)
                 VALUES (?, ?, ?, ?, ?, 'user')
-            ''', (
-                username, email, password,
-                company['id'], company_code
-            ))
+            ''', (username, email, password,
+                  company['id'], company_code))
             conn.commit()
             conn.close()
             return redirect(url_for('login'))
-
         except sqlite3.IntegrityError:
             conn.close()
             error = 'Username or email already exists!'
@@ -271,9 +304,7 @@ def enroll():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     return render_template(
-        'enroll.html',
-        username=session['username']
-    )
+        'enroll.html', username=session['username'])
 
 
 @app.route('/save_enrollment', methods=['POST'])
@@ -311,8 +342,7 @@ def save_enrollment():
     conn = get_db()
     conn.execute(
         'DELETE FROM user_profiles WHERE user_id=?',
-        (session['user_id'],)
-    )
+        (session['user_id'],))
     conn.execute('''
         INSERT INTO user_profiles
         (user_id, dwell_mean, dwell_std,
@@ -326,14 +356,12 @@ def save_enrollment():
         np.mean(dd_means),    np.std(dd_means),
         np.mean(ud_means),    np.std(ud_means),
         np.mean(wpm_vals),    np.std(wpm_vals),
-        np.mean(error_vals),
-        np.mean(pause_vals),
+        np.mean(error_vals),  np.mean(pause_vals),
         len(all_features)
     ))
     conn.execute(
         'UPDATE users SET is_enrolled=1 WHERE id=?',
-        (session['user_id'],)
-    )
+        (session['user_id'],))
     conn.commit()
     conn.close()
 
@@ -353,20 +381,16 @@ def login():
     error = None
     if request.method == 'POST':
         username = request.form['username']
-        password = hash_password(
-            request.form['password'])
+        password = hash_password(request.form['password'])
 
         ip              = request.environ.get(
-            'HTTP_X_FORWARDED_FOR',
-            request.remote_addr
-        )
+            'HTTP_X_FORWARDED_FOR', request.remote_addr)
         location        = get_location_from_ip(ip)
         browser, device = get_browser_info()
 
         conn = get_db()
         user = conn.execute(
-            '''SELECT * FROM users
-               WHERE username=? AND password=?''',
+            'SELECT * FROM users WHERE username=? AND password=?',
             (username, password)
         ).fetchone()
 
@@ -381,8 +405,7 @@ def login():
             company_name = 'KeyAuth'
             if user['company_id']:
                 company = conn.execute(
-                    '''SELECT name FROM companies
-                       WHERE id=?''',
+                    'SELECT name FROM companies WHERE id=?',
                     (user['company_id'],)
                 ).fetchone()
                 if company:
@@ -390,15 +413,11 @@ def login():
 
             cursor = conn.execute('''
                 INSERT INTO sessions
-                (user_id, ip_address, city,
-                 country, browser, device, status)
+                (user_id, ip_address, city, country,
+                 browser, device, status)
                 VALUES (?, ?, ?, ?, ?, ?, 'active')
-            ''', (
-                user['id'], ip,
-                location['city'],
-                location['country'],
-                browser, device
-            ))
+            ''', (user['id'], ip, location['city'],
+                  location['country'], browser, device))
             session_id = cursor.lastrowid
 
             prev = conn.execute('''
@@ -418,23 +437,41 @@ def login():
                 ''', (
                     user['id'], session_id,
                     'NEW_LOCATION',
-                    f"New login from "
-                    f"{location['city']}, "
+                    f"New login from {location['city']}, "
                     f"{location['country']} "
                     f"via {browser} on {device}"
                 ))
+                conn.commit()
+
+                # Send new location alert emails
+                import threading
+                threading.Thread(
+                    target=send_security_alerts,
+                    args=(
+                        user['id'],
+                        user['username'],
+                        user['company_id'],
+                        'NEW_LOCATION',
+                        100,
+                        f"Location: {location['city']}, "
+                        f"{location['country']} | "
+                        f"Browser: {browser} | "
+                        f"Device: {device}"
+                    )
+                ).start()
 
             conn.commit()
             conn.close()
 
-            session['user_id']     = user['id']
-            session['username']    = user['username']
-            session['is_enrolled'] = user['is_enrolled']
-            session['is_admin']    = user['is_admin']
-            session['session_id']  = session_id
-            session['company']     = company_name
-            session['company_id']  = user['company_id']
-            session['company_code'] = user['company_code'] or ''
+            session['user_id']      = user['id']
+            session['username']     = user['username']
+            session['is_enrolled']  = user['is_enrolled']
+            session['is_admin']     = user['is_admin']
+            session['session_id']   = session_id
+            session['company']      = company_name
+            session['company_id']   = user['company_id']
+            session['company_code'] = (
+                user['company_code'] or '')
 
             if user['is_admin']:
                 return redirect(
@@ -462,14 +499,12 @@ def dashboard():
     ).fetchone()
 
     login_history = conn.execute('''
-        SELECT * FROM sessions
-        WHERE user_id=?
+        SELECT * FROM sessions WHERE user_id=?
         ORDER BY login_time DESC LIMIT 5
     ''', (session['user_id'],)).fetchall()
 
     user_alerts = conn.execute('''
-        SELECT * FROM alerts
-        WHERE user_id=?
+        SELECT * FROM alerts WHERE user_id=?
         ORDER BY timestamp DESC LIMIT 5
     ''', (session['user_id'],)).fetchall()
 
@@ -506,39 +541,31 @@ def admin_dashboard():
     company_id = session.get('company_id')
 
     total_users = conn.execute(
-        '''SELECT COUNT(*) as c FROM users
-           WHERE is_admin=0 AND company_id=?''',
+        'SELECT COUNT(*) as c FROM users WHERE is_admin=0 AND company_id=?',
         (company_id,)
     ).fetchone()['c']
 
     enrolled_users = conn.execute(
-        '''SELECT COUNT(*) as c FROM users
-           WHERE is_enrolled=1 AND is_admin=0
-           AND company_id=?''',
+        'SELECT COUNT(*) as c FROM users WHERE is_enrolled=1 AND is_admin=0 AND company_id=?',
         (company_id,)
     ).fetchone()['c']
 
     blocked_users = conn.execute(
-        '''SELECT COUNT(*) as c FROM users
-           WHERE is_blocked=1 AND company_id=?''',
+        'SELECT COUNT(*) as c FROM users WHERE is_blocked=1 AND company_id=?',
         (company_id,)
     ).fetchone()['c']
 
-    active_sessions = conn.execute(
-        '''SELECT COUNT(*) as c FROM sessions s
-           JOIN users u ON s.user_id=u.id
-           WHERE s.status='active'
-           AND u.company_id=?''',
-        (company_id,)
-    ).fetchone()['c']
+    active_sessions = conn.execute('''
+        SELECT COUNT(*) as c FROM sessions s
+        JOIN users u ON s.user_id=u.id
+        WHERE s.status='active' AND u.company_id=?
+    ''', (company_id,)).fetchone()['c']
 
-    total_logs = conn.execute(
-        '''SELECT COUNT(*) as c
-           FROM keystroke_logs k
-           JOIN users u ON k.user_id=u.id
-           WHERE u.company_id=?''',
-        (company_id,)
-    ).fetchone()['c']
+    total_logs = conn.execute('''
+        SELECT COUNT(*) as c FROM keystroke_logs k
+        JOIN users u ON k.user_id=u.id
+        WHERE u.company_id=?
+    ''', (company_id,)).fetchone()['c']
 
     users = conn.execute('''
         SELECT u.id, u.username, u.email,
@@ -547,8 +574,7 @@ def admin_dashboard():
                COUNT(DISTINCT k.id) as log_count,
                AVG(k.trust_score) as avg_trust,
                MAX(s.login_time) as last_login,
-               s.city, s.country,
-               s.browser, s.device
+               s.city, s.country, s.browser, s.device
         FROM users u
         LEFT JOIN keystroke_logs k ON u.id=k.user_id
         LEFT JOIN sessions s ON u.id=s.user_id
@@ -558,24 +584,21 @@ def admin_dashboard():
     ''', (company_id,)).fetchall()
 
     logs = conn.execute('''
-        SELECT k.*, u.username
-        FROM keystroke_logs k
+        SELECT k.*, u.username FROM keystroke_logs k
         JOIN users u ON k.user_id=u.id
         WHERE u.company_id=?
         ORDER BY k.timestamp DESC LIMIT 20
     ''', (company_id,)).fetchall()
 
     alerts = conn.execute('''
-        SELECT a.*, u.username
-        FROM alerts a
+        SELECT a.*, u.username FROM alerts a
         JOIN users u ON a.user_id=u.id
         WHERE u.company_id=?
         ORDER BY a.timestamp DESC LIMIT 20
     ''', (company_id,)).fetchall()
 
     login_locations = conn.execute('''
-        SELECT s.*, u.username
-        FROM sessions s
+        SELECT s.*, u.username FROM sessions s
         JOIN users u ON s.user_id=u.id
         WHERE u.company_id=?
         ORDER BY s.login_time DESC LIMIT 20
@@ -639,40 +662,35 @@ def employee_stats(user_id):
         return redirect(url_for('admin_dashboard'))
 
     logs = conn.execute('''
-        SELECT * FROM keystroke_logs
-        WHERE user_id=?
+        SELECT * FROM keystroke_logs WHERE user_id=?
         ORDER BY timestamp DESC LIMIT 50
     ''', (user_id,)).fetchall()
 
     sessions_list = conn.execute('''
-        SELECT * FROM sessions
-        WHERE user_id=?
+        SELECT * FROM sessions WHERE user_id=?
         ORDER BY login_time DESC LIMIT 10
     ''', (user_id,)).fetchall()
 
     alerts = conn.execute('''
-        SELECT * FROM alerts
-        WHERE user_id=?
+        SELECT * FROM alerts WHERE user_id=?
         ORDER BY timestamp DESC LIMIT 10
     ''', (user_id,)).fetchall()
 
-    profile = conn.execute('''
-        SELECT * FROM user_profiles
-        WHERE user_id=?
-    ''', (user_id,)).fetchone()
+    profile = conn.execute(
+        'SELECT * FROM user_profiles WHERE user_id=?',
+        (user_id,)
+    ).fetchone()
 
     stats = conn.execute('''
-        SELECT
-            AVG(trust_score)  as avg_trust,
-            MIN(trust_score)  as min_trust,
-            MAX(trust_score)  as max_trust,
-            AVG(wpm)          as avg_wpm,
-            AVG(dwell_time)   as avg_dwell,
-            AVG(flight_time)  as avg_flight,
-            AVG(error_rate)   as avg_error,
-            COUNT(*)          as total_windows
-        FROM keystroke_logs
-        WHERE user_id=?
+        SELECT AVG(trust_score) as avg_trust,
+               MIN(trust_score) as min_trust,
+               MAX(trust_score) as max_trust,
+               AVG(wpm)         as avg_wpm,
+               AVG(dwell_time)  as avg_dwell,
+               AVG(flight_time) as avg_flight,
+               AVG(error_rate)  as avg_error,
+               COUNT(*)         as total_windows
+        FROM keystroke_logs WHERE user_id=?
     ''', (user_id,)).fetchone()
 
     conn.close()
@@ -683,10 +701,8 @@ def employee_stats(user_id):
         logs          = logs,
         sessions_list = sessions_list,
         alerts        = alerts,
-        profile       = dict(profile)
-                        if profile else None,
-        stats         = dict(stats)
-                        if stats else None,
+        profile       = dict(profile) if profile else None,
+        stats         = dict(stats) if stats else None,
         username      = session['username'],
         company       = session.get('company', '')
     )
@@ -700,8 +716,7 @@ def block_user(user_id):
     conn = get_db()
     conn.execute(
         'UPDATE users SET is_blocked=1 WHERE id=?',
-        (user_id,)
-    )
+        (user_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -714,8 +729,7 @@ def unblock_user(user_id):
     conn = get_db()
     conn.execute(
         'UPDATE users SET is_blocked=0 WHERE id=?',
-        (user_id,)
-    )
+        (user_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -731,8 +745,7 @@ def delete_user(user_id):
                   'failed_sessions']:
         conn.execute(
             f'DELETE FROM {table} WHERE user_id=?',
-            (user_id,)
-        )
+            (user_id,))
     conn.execute(
         'DELETE FROM users WHERE id=?', (user_id,))
     conn.commit()
@@ -745,7 +758,6 @@ def delete_user(user_id):
 def export_logs():
     import csv
     import io
-
     company_id = session.get('company_id')
     conn       = get_db()
     logs       = conn.execute('''
@@ -761,20 +773,16 @@ def export_logs():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        'Username', 'Dwell Time', 'Flight Time',
-        'WPM', 'Trust Score', 'Timestamp'
-    ])
+    writer.writerow(['Username', 'Dwell Time',
+                     'Flight Time', 'WPM',
+                     'Trust Score', 'Timestamp'])
     for log in logs:
         writer.writerow(list(log))
 
     return Response(
-        output.getvalue(),
-        mimetype='text/csv',
-        headers={
-            'Content-Disposition':
-            'attachment; filename=security_report.csv'
-        }
+        output.getvalue(), mimetype='text/csv',
+        headers={'Content-Disposition':
+                 'attachment; filename=security_report.csv'}
     )
 
 
@@ -788,45 +796,34 @@ def change_credentials():
     new_email    = data.get('email', '').strip()
 
     if not new_username or not new_email:
-        return jsonify({
-            'success': False,
-            'message': 'Username and email required'
-        })
+        return jsonify({'success': False,
+                        'message': 'Fields required'})
 
     conn = get_db()
     try:
         if new_password:
             conn.execute('''
-                UPDATE users SET
-                    username=?, email=?, password=?
-                WHERE id=?
-            ''', (
-                new_username, new_email,
-                hash_password(new_password),
-                session['user_id']
-            ))
+                UPDATE users SET username=?,
+                email=?, password=? WHERE id=?
+            ''', (new_username, new_email,
+                  hash_password(new_password),
+                  session['user_id']))
         else:
             conn.execute('''
-                UPDATE users SET username=?, email=?
-                WHERE id=?
-            ''', (
-                new_username, new_email,
-                session['user_id']
-            ))
+                UPDATE users SET username=?,
+                email=? WHERE id=?
+            ''', (new_username, new_email,
+                  session['user_id']))
         conn.commit()
         conn.close()
         session['username'] = new_username
         session.modified    = True
-        return jsonify({
-            'success': True,
-            'message': 'Credentials updated!'
-        })
+        return jsonify({'success': True,
+                        'message': 'Updated!'})
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({
-            'success': False,
-            'message': 'Username or email taken'
-        })
+        return jsonify({'success': False,
+                        'message': 'Already taken'})
 
 
 # ── Attack Simulation ─────────────────────────────────────────────
@@ -840,34 +837,29 @@ def simulate_attack():
     conn = get_db()
     conn.execute('''
         INSERT INTO attack_simulations
-        (admin_id, attack_type,
-         initial_score, final_score,
-         detected, response, details)
+        (admin_id, attack_type, initial_score,
+         final_score, detected, response, details)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        session['user_id'],
-        attack_type,
-        results['initial_score'],
-        results['final_score'],
-        1 if results['detected'] else 0,
-        results['response'],
-        json.dumps(results['details'])
-    ))
+    ''', (session['user_id'], attack_type,
+          results['initial_score'],
+          results['final_score'],
+          1 if results['detected'] else 0,
+          results['response'],
+          json.dumps(results['details'])))
     conn.commit()
     conn.close()
-
     return jsonify(results)
 
 
 def run_simulation(attack_type):
     sims = {
         'password_sharing': {
-            'name':        'Password Sharing Attack',
-            'description': 'Someone using stolen credentials',
-            'initial':     random.uniform(75, 95),
-            'final':       random.uniform(5, 25),
-            'time':        round(random.uniform(2, 8), 1),
-            'response':    'Session Terminated + Alert',
+            'name':     'Password Sharing Attack',
+            'desc':     'Someone using stolen credentials',
+            'initial':  random.uniform(75, 95),
+            'final':    random.uniform(5, 25),
+            'time':     round(random.uniform(2, 8), 1),
+            'response': 'Session Terminated + Alert',
             'details': {
                 'dwell_deviation':
                     f'+{random.randint(40,80)}%',
@@ -883,12 +875,12 @@ def run_simulation(attack_type):
             }
         },
         'session_hijacking': {
-            'name':        'Session Hijacking Attack',
-            'description': 'Mid-session account takeover',
-            'initial':     random.uniform(70, 90),
-            'final':       random.uniform(8, 30),
-            'time':        round(random.uniform(1, 5), 1),
-            'response':    'OTP Triggered + Admin Alerted',
+            'name':     'Session Hijacking Attack',
+            'desc':     'Mid-session account takeover',
+            'initial':  random.uniform(70, 90),
+            'final':    random.uniform(8, 30),
+            'time':     round(random.uniform(1, 5), 1),
+            'response': 'OTP Triggered + Admin Alerted',
             'details': {
                 'dwell_deviation':
                     f'+{random.randint(50,90)}%',
@@ -904,12 +896,12 @@ def run_simulation(attack_type):
             }
         },
         'unknown_location': {
-            'name':        'Unknown Location Login',
-            'description': 'Login from unrecognized location',
-            'initial':     random.uniform(60, 80),
-            'final':       random.uniform(40, 65),
-            'time':        round(random.uniform(0.5, 2), 1),
-            'response':    'Location Alert + OTP Required',
+            'name':     'Unknown Location Login',
+            'desc':     'Login from unrecognized location',
+            'initial':  random.uniform(60, 80),
+            'final':    random.uniform(40, 65),
+            'time':     round(random.uniform(0.5, 2), 1),
+            'response': 'Location Alert + OTP Required',
             'details': {
                 'location_match':    'Failed',
                 'new_location':      'Unknown City',
@@ -922,12 +914,12 @@ def run_simulation(attack_type):
             }
         },
         'bot_typing': {
-            'name':        'Bot Typing Attack',
-            'description': 'Automated bot keystroke injection',
-            'initial':     random.uniform(50, 70),
-            'final':       random.uniform(2, 15),
-            'time':        round(random.uniform(1, 4), 1),
-            'response':    'Session Blocked + IP Flagged',
+            'name':     'Bot Typing Attack',
+            'desc':     'Automated bot keystroke injection',
+            'initial':  random.uniform(50, 70),
+            'final':    random.uniform(2, 15),
+            'time':     round(random.uniform(1, 4), 1),
+            'response': 'Session Blocked + IP Flagged',
             'details': {
                 'dwell_deviation':
                     f'-{random.randint(60,90)}%',
@@ -944,15 +936,16 @@ def run_simulation(attack_type):
     }
 
     sim = sims.get(attack_type, {
-        'name': 'Unknown', 'description': '',
-        'initial': 75, 'final': 50, 'time': 0,
-        'response': 'No response', 'details': {}
+        'name': 'Unknown', 'desc': '',
+        'initial': 75, 'final': 50,
+        'time': 0, 'response': 'None',
+        'details': {}
     })
 
     return {
         'attack_type':    attack_type,
         'name':           sim['name'],
-        'description':    sim['description'],
+        'description':    sim['desc'],
         'initial_score':  round(sim['initial'], 1),
         'final_score':    round(sim['final'], 1),
         'score_drop':     round(
@@ -1009,8 +1002,7 @@ def analyze_keystrokes():
         conn   = get_db()
         conn.execute(
             'DELETE FROM otp_tokens WHERE user_id=?',
-            (session['user_id'],)
-        )
+            (session['user_id'],))
         conn.execute('''
             INSERT INTO otp_tokens
             (user_id, otp_code, expires_at)
@@ -1019,6 +1011,7 @@ def analyze_keystrokes():
         conn.commit()
         conn.close()
 
+    # Save log
     conn = get_db()
     conn.execute('''
         INSERT INTO keystroke_logs
@@ -1038,6 +1031,32 @@ def analyze_keystrokes():
     ))
     conn.commit()
     conn.close()
+
+    # Send email alerts for risky events
+    import threading
+    if status == 'suspicious':
+        threading.Thread(
+            target=send_security_alerts,
+            args=(
+                session['user_id'],
+                session['username'],
+                session.get('company_id'),
+                'SUSPICIOUS',
+                round(trust_score, 1)
+            )
+        ).start()
+
+    elif status in ('otp', 'terminate'):
+        threading.Thread(
+            target=send_security_alerts,
+            args=(
+                session['user_id'],
+                session['username'],
+                session.get('company_id'),
+                'HIGH_RISK',
+                round(trust_score, 1)
+            )
+        ).start()
 
     print(f"User: {session['username']} | "
           f"Trust: {trust_score}% | "
@@ -1063,31 +1082,21 @@ def log_incident():
     score  = data.get('score', 0)
 
     conn = get_db()
-
-    # Log alert
     conn.execute('''
         INSERT INTO alerts
         (user_id, session_id, alert_type, message)
         VALUES (?, ?, ?, ?)
-    ''', (
-        session['user_id'],
-        session.get('session_id', 0),
-        'SESSION_TERMINATED',
-        f'Session terminated. {reason}. '
-        f'Score: {score}%'
-    ))
+    ''', (session['user_id'],
+          session.get('session_id', 0),
+          'SESSION_TERMINATED',
+          f'Session terminated. {reason}. Score: {score}%'))
 
-    # Track failed session
     conn.execute('''
-        INSERT INTO failed_sessions
-        (user_id, reason)
+        INSERT INTO failed_sessions (user_id, reason)
         VALUES (?, ?)
-    ''', (
-        session['user_id'],
-        f'{reason} — Score: {score}%'
-    ))
+    ''', (session['user_id'],
+          f'{reason} — Score: {score}%'))
 
-    # Update session status
     conn.execute('''
         UPDATE sessions
         SET status='terminated',
@@ -1095,7 +1104,6 @@ def log_incident():
         WHERE id=?
     ''', (session.get('session_id', 0),))
 
-    # Check recent failures — 30 min window
     recent_failures = conn.execute('''
         SELECT COUNT(*) as c FROM failed_sessions
         WHERE user_id=?
@@ -1104,31 +1112,50 @@ def log_incident():
 
     auto_blocked = False
 
-    # Auto block after 3 failed sessions
     if recent_failures >= 3:
-        conn.execute('''
-            UPDATE users SET is_blocked=1 WHERE id=?
-        ''', (session['user_id'],))
-
+        conn.execute(
+            'UPDATE users SET is_blocked=1 WHERE id=?',
+            (session['user_id'],))
         conn.execute('''
             INSERT INTO alerts
-            (user_id, session_id,
-             alert_type, message)
+            (user_id, session_id, alert_type, message)
             VALUES (?, ?, ?, ?)
         ''', (
             session['user_id'],
             session.get('session_id', 0),
             'AUTO_BLOCKED',
-            f'Account auto-blocked after '
-            f'{recent_failures} suspicious sessions '
-            f'in 30 minutes. Possible unauthorized '
-            f'access attempt.'
+            f'Auto-blocked after {recent_failures} '
+            f'suspicious sessions in 30 minutes.'
         ))
-
         auto_blocked = True
-        print(f"🚨 AUTO BLOCKED: "
-              f"{session['username']} — "
-              f"{recent_failures} failures")
+
+        # Send auto block email alerts
+        import threading
+        threading.Thread(
+            target=send_security_alerts,
+            args=(
+                session['user_id'],
+                session['username'],
+                session.get('company_id'),
+                'AUTO_BLOCKED',
+                score,
+                f'Account blocked after '
+                f'{recent_failures} failed sessions.'
+            )
+        ).start()
+
+    # Send session terminated alerts
+    import threading
+    threading.Thread(
+        target=send_security_alerts,
+        args=(
+            session['user_id'],
+            session['username'],
+            session.get('company_id'),
+            'SESSION_TERMINATED',
+            score
+        )
+    ).start()
 
     conn.commit()
     conn.close()
@@ -1159,8 +1186,7 @@ def send_otp():
         conn   = get_db()
         conn.execute(
             'DELETE FROM otp_tokens WHERE user_id=?',
-            (session['user_id'],)
-        )
+            (session['user_id'],))
         conn.execute('''
             INSERT INTO otp_tokens
             (user_id, otp_code, expires_at)
@@ -1200,10 +1226,8 @@ def verify_otp():
 
     if not token:
         conn.close()
-        return jsonify({
-            'success': False,
-            'message': 'No OTP found.'
-        })
+        return jsonify({'success': False,
+                        'message': 'No OTP found.'})
 
     try:
         expires_at = datetime.strptime(
@@ -1216,31 +1240,24 @@ def verify_otp():
 
     if datetime.now() > expires_at:
         conn.close()
-        return jsonify({
-            'success': False,
-            'message': 'OTP expired.'
-        })
+        return jsonify({'success': False,
+                        'message': 'OTP expired.'})
 
     if otp_input == token['otp_code']:
         conn.execute(
             'UPDATE otp_tokens SET is_used=1 WHERE id=?',
-            (token['id'],)
-        )
+            (token['id'],))
         conn.commit()
         conn.close()
-        return jsonify({
-            'success': True,
-            'message': 'Verified!'
-        })
+        return jsonify({'success': True,
+                        'message': 'Verified!'})
     else:
         conn.close()
-        return jsonify({
-            'success': False,
-            'message': 'Incorrect OTP.'
-        })
+        return jsonify({'success': False,
+                        'message': 'Incorrect OTP.'})
 
 
-# ── Update Profile (only when trust is high) ──────────────────────
+# ── Update Profile ────────────────────────────────────────────────
 @app.route('/update_profile', methods=['POST'])
 def update_profile():
     if 'user_id' not in session:
@@ -1251,11 +1268,7 @@ def update_profile():
     backspace_count = data.get('backspace_count', 0)
     trust_score     = data.get('trust_score', 0)
 
-    # Block profile update if trust is low
-    # Prevents hacker from poisoning the model
     if trust_score < 70:
-        print(f"⚠️ Profile update blocked — "
-              f"trust: {trust_score}%")
         return jsonify({
             'success': False,
             'reason':  'Trust too low to update profile'
@@ -1292,10 +1305,6 @@ def update_profile():
     ))
     conn.commit()
     conn.close()
-
-    print(f"✅ Profile updated for "
-          f"{session['username']} "
-          f"(trust: {trust_score}%)")
     return jsonify({'success': True})
 
 
@@ -1338,20 +1347,17 @@ def external_analyze():
 
     if not company:
         conn.close()
-        return jsonify(
-            {'error': 'Invalid company'}), 401
+        return jsonify({'error': 'Invalid company'}), 401
 
     user = conn.execute('''
         SELECT * FROM users
         WHERE company_code=?
-        AND is_blocked=0 AND is_enrolled=1
-        LIMIT 1
+        AND is_blocked=0 AND is_enrolled=1 LIMIT 1
     ''', (company_code,)).fetchone()
 
     if not user:
         conn.close()
-        return jsonify(
-            {'error': 'User not found'}), 401
+        return jsonify({'error': 'User not found'}), 401
 
     data            = request.get_json()
     keystrokes      = data.get('keystrokes', [])
@@ -1389,15 +1395,10 @@ def external_analyze():
          flight_time, wpm, pause_count,
          error_rate, trust_score)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        user['id'], 0,
-        features['dwell_mean'],
-        features['dd_mean'],
-        features['wpm'],
-        features['pause_count'],
-        features['error_rate'],
-        trust_score
-    ))
+    ''', (user['id'], 0,
+          features['dwell_mean'], features['dd_mean'],
+          features['wpm'], features['pause_count'],
+          features['error_rate'], trust_score))
     conn.commit()
     conn.close()
 
@@ -1430,4 +1431,8 @@ def logout():
 # ── Run ───────────────────────────────────────────────────────────
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True)
+    app.run(debug=False)
+
+
+with app.app_context():
+    init_db()
