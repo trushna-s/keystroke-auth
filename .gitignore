@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .DS_Store
 database/keystroke.db
+*.db
+instance/
