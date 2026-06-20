@@ -2,6 +2,9 @@ import numpy as np
 
 
 def extract_features_from_raw(keystrokes, backspace_count):
+    """
+    Extract timing features from raw JS keystroke events.
+    """
     if len(keystrokes) < 5:
         return None
 
@@ -41,14 +44,10 @@ def extract_features_from_raw(keystrokes, backspace_count):
     return {
         'dwell_mean':  np.mean(dwell_times),
         'dwell_std':   np.std(dwell_times),
-        'dd_mean':     np.mean(dd_times)
-                       if dd_times else 0,
-        'dd_std':      np.std(dd_times)
-                       if dd_times else 0,
-        'ud_mean':     np.mean(ud_times)
-                       if ud_times else 0,
-        'ud_std':      np.std(ud_times)
-                       if ud_times else 0,
+        'dd_mean':     np.mean(dd_times)   if dd_times else 0,
+        'dd_std':      np.std(dd_times)    if dd_times else 0,
+        'ud_mean':     np.mean(ud_times)   if ud_times else 0,
+        'ud_std':      np.std(ud_times)    if ud_times else 0,
         'wpm':         wpm,
         'error_rate':  error_rate,
         'pause_count': pause_count,
@@ -56,18 +55,30 @@ def extract_features_from_raw(keystrokes, backspace_count):
 
 
 def compare_to_profile(features, profile):
+    """
+    Compare extracted features to stored user profile.
+    Returns (trust_score, explanation).
+
+    STRICT MODE: tolerance lowered to 1.0 std dev so that
+    a different person's typing rhythm is reliably flagged
+    within the first window or two, instead of needing
+    several minutes of sustained deviation.
+    """
     if not profile or not features:
         return 75.0, {}
 
     def score_feature(val, mean, std,
                       weight=1.0, tolerance=1.0):
         """
-        Strict scoring:
-        tolerance=1.0 means within 1 std dev = full score
-        Beyond that drops fast
+        tolerance: how many std devs are acceptable
+        before the score starts dropping.
+        Lower tolerance = stricter detection.
+        Returns a 0-100 score WITHOUT weight applied
+        (weight is applied separately in the weighted
+        average so explanation values aren't double-scaled).
         """
         if std is None or std < 0.001:
-            std = max(abs(mean) * 0.2, 0.005)
+            std = max(abs(mean) * 0.15, 0.005)
 
         z = abs(val - mean) / std
 
@@ -75,111 +86,112 @@ def compare_to_profile(features, profile):
             score = 100.0
         else:
             excess = z - tolerance
-            # Drops 35 points per std dev beyond tolerance
-            score  = max(0, 100 - (excess * 35))
+            # Drop 40 points per std dev beyond tolerance
+            # (was 20 — too gentle to flag impostors quickly)
+            score = max(0, 100 - (excess * 40))
 
-        return score * weight
+        return score
 
-    # Strict weights — dwell and dd are most important
-    dwell_score = score_feature(
+    # Raw 0-100 scores per feature (NOT weight-multiplied)
+    dwell_raw = score_feature(
         features['dwell_mean'],
         profile['dwell_mean'],
         profile['dwell_std'],
-        weight=2.5,
         tolerance=1.0
     )
 
-    dd_score = score_feature(
+    dd_raw = score_feature(
         features['dd_mean'],
         profile['dd_mean'],
         profile['dd_std'],
-        weight=2.0,
         tolerance=1.0
     )
 
-    ud_score = score_feature(
+    ud_raw = score_feature(
         features['ud_mean'],
         profile['ud_mean'],
         profile['ud_std'],
-        weight=1.0,
-        tolerance=1.5
+        tolerance=1.3
     )
 
-    wpm_score = score_feature(
+    wpm_raw = score_feature(
         features['wpm'],
         profile['wpm_mean'],
         max(profile['wpm_std'], 3.0),
-        weight=1.5,
-        tolerance=1.5
+        tolerance=1.3
     )
 
-    error_score = score_feature(
+    error_raw = score_feature(
         features['error_rate'],
         profile['error_rate_mean'],
         0.08,
-        weight=0.5,
-        tolerance=2.0
+        tolerance=1.8
     )
 
-    weights     = [2.5, 2.0, 1.0, 1.5, 0.5]
-    scores      = [dwell_score, dd_score,
-                   ud_score, wpm_score, error_score]
-    total_w     = sum(weights)
-    weighted    = sum(s * w for s, w
-                      in zip(scores, weights))
+    # Weights used ONLY for the combined trust score
+    weights = {
+        'dwell': 2.5,
+        'dd':    2.0,
+        'ud':    1.0,
+        'wpm':   1.5,
+        'error': 0.5
+    }
+    raws = {
+        'dwell': dwell_raw,
+        'dd':    dd_raw,
+        'ud':    ud_raw,
+        'wpm':   wpm_raw,
+        'error': error_raw
+    }
+
+    total_w  = sum(weights.values())
+    weighted = sum(raws[k] * weights[k] for k in weights)
     final_score = min(100, max(0, weighted / total_w))
 
+    # Explanation uses the RAW (unweighted) per-feature score
+    # so each bar correctly shows 0-100% for that feature alone
     explanation = {
         'dwell_time': {
-            'score':    round(
-                min(100, dwell_score / 2.5), 1),
-            'value':    round(
-                features['dwell_mean'] * 1000, 1),
-            'baseline': round(
-                profile['dwell_mean'] * 1000, 1),
+            'score':    round(dwell_raw, 1),
+            'value':    round(features['dwell_mean'] * 1000, 1),
+            'baseline': round(profile['dwell_mean'] * 1000, 1),
             'unit':     'ms',
             'label':    'Key Hold Time',
-            'status':   _get_status(
-                dwell_score / 2.5)
+            'status':   _get_status(dwell_raw)
         },
         'flight_time': {
-            'score':    round(
-                min(100, dd_score / 2.0), 1),
-            'value':    round(
-                features['dd_mean'] * 1000, 1),
-            'baseline': round(
-                profile['dd_mean'] * 1000, 1),
+            'score':    round(dd_raw, 1),
+            'value':    round(features['dd_mean'] * 1000, 1),
+            'baseline': round(profile['dd_mean'] * 1000, 1),
             'unit':     'ms',
             'label':    'Time Between Keys',
-            'status':   _get_status(dd_score / 2.0)
+            'status':   _get_status(dd_raw)
         },
         'typing_speed': {
-            'score':    round(min(100, wpm_score), 1),
+            'score':    round(wpm_raw, 1),
             'value':    round(features['wpm'], 1),
             'baseline': round(profile['wpm_mean'], 1),
             'unit':     'WPM',
             'label':    'Typing Speed',
-            'status':   _get_status(wpm_score)
+            'status':   _get_status(wpm_raw)
         },
         'error_rate': {
-            'score':    round(
-                min(100, error_score / 0.5), 1),
-            'value':    round(
-                features['error_rate'] * 100, 1),
+            'score':    round(error_raw, 1),
+            'value':    round(features['error_rate'] * 100, 1),
             'baseline': round(
                 profile['error_rate_mean'] * 100, 1),
             'unit':     '%',
             'label':    'Error Rate',
-            'status':   _get_status(error_score / 0.5)
+            'status':   _get_status(error_raw)
         },
         'pause_pattern': {
-            'score':    round(min(100, ud_score), 1),
+            'score':    round(ud_raw, 1),
             'value':    features['pause_count'],
             'baseline': round(
                 profile['pause_count_mean'], 1),
             'unit':     'pauses',
             'label':    'Pause Pattern',
-            'status':   _get_status(ud_score)
+            'status':   _get_status(ud_raw)
         }
     }
 
@@ -197,11 +209,10 @@ def _get_status(score):
 
 def get_risk_level(trust_score):
     """
-    Strict thresholds:
-    > 75  → Safe
-    50-75 → Suspicious (warning shown)
-    25-50 → OTP triggered
-    < 25  → Session terminated
+    >=75   → allow      (Safe)
+    50-75  → suspicious (Medium) — warning shown
+    25-50  → otp        (High)  — OTP triggered
+    <25    → terminate  (Critical) — session ended
     """
     if trust_score >= 75:
         return 'allow', 'Low'

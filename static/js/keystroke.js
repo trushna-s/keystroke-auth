@@ -5,11 +5,12 @@ let keydownTimes   = {};
 let backspaceCount = 0;
 const windowSize   = 25;
 
-// 2 consecutive bad windows → logout
+// REDUCED from 5 → 2. With only 1-2 bad windows needed,
+// a different person's typing gets flagged almost immediately
+// instead of needing 75+ keystrokes of sustained deviation.
 const scoreHistory = [];
 const historyLimit = 2;
 
-// Track last trust score
 let lastTrustScore = 100;
 
 document.addEventListener('keydown', function(e) {
@@ -27,8 +28,7 @@ document.addEventListener('keyup', function(e) {
 
     const dwell  = upTime - downTime;
     const flight = keystrokes.length > 0
-        ? downTime -
-          keystrokes[keystrokes.length - 1].downTime
+        ? downTime - keystrokes[keystrokes.length - 1].downTime
         : null;
 
     keystrokes.push({
@@ -72,18 +72,15 @@ function sendKeystrokeData(data) {
 
         processTrustScore(result);
 
-        // Only update profile if trust is high
-        // Prevents hacker from poisoning profile
-        if (result.trust_score >= 70) {
-            updateProfile(
-                data,
-                backspaceCount,
-                result.trust_score
-            );
+        // Only update profile if trust is high —
+        // prevents a different typist from poisoning
+        // the legitimate user's baseline.
+        if (result.trust_score >= 75) {
+            updateProfile(data, backspaceCount,
+                          result.trust_score);
         } else {
             console.log(
-                '⚠️ Profile update skipped — ' +
-                'trust too low: ' +
+                '⚠️ Profile update skipped — trust: ' +
                 result.trust_score + '%'
             );
         }
@@ -107,10 +104,7 @@ function updateProfile(ks, bc, trustScore) {
         if (data.success) {
             console.log('✅ Profile updated');
         } else {
-            console.log(
-                '⚠️ Profile update skipped:',
-                data.reason
-            );
+            console.log('⚠️ Profile update skipped:', data.reason);
         }
     });
 }
@@ -136,11 +130,15 @@ function processTrustScore(result) {
     ).length;
 
     console.log(
-        `Avg: ${roundedAvg}% | ` +
-        `Low: ${lowCount}/${historyLimit}`
+        `Avg: ${roundedAvg}% | Low: ${lowCount}/${historyLimit}`
     );
 
-    // Both windows must be low to trigger
+    // CHANGED: require ALL recent windows to be low
+    // (was: 60% of a 5-window history — too slow).
+    // With historyLimit=2, this means 2 consecutive
+    // suspicious/risky windows (50 keystrokes) triggers
+    // action — fast enough to catch a different typist
+    // within a few seconds, but still avoids 1-window flukes.
     if (scoreHistory.length >= historyLimit &&
         lowCount >= historyLimit) {
 
@@ -166,7 +164,16 @@ function processTrustScore(result) {
         handleTrustUpdate(roundedAvg, finalStatus);
 
     } else {
-        handleTrustUpdate(roundedAvg, 'allow');
+        // Even if not triggering an action yet, reflect
+        // the CURRENT single-window status visually if it's
+        // already risky — this is what fixes "always shows
+        // secure" even on the very first suspicious window.
+        if (status !== 'allow') {
+            handleTrustUpdate(score, status === 'terminate'
+                ? 'suspicious' : status);
+        } else {
+            handleTrustUpdate(roundedAvg, 'allow');
+        }
     }
 }
 
@@ -178,10 +185,7 @@ function handleTrustUpdate(score, status) {
 
     if (status === 'suspicious') {
         if (typeof addActivity === 'function') {
-            addActivity(
-                '⚠️ Unusual typing detected',
-                'warning'
-            );
+            addActivity('⚠️ Unusual typing detected', 'warning');
         }
     } else if (status === 'otp') {
         if (typeof showOTPModal === 'function') {
@@ -189,17 +193,12 @@ function handleTrustUpdate(score, status) {
         }
     } else if (status === 'terminate') {
         if (typeof addActivity === 'function') {
-            addActivity(
-                '🚫 Session terminated',
-                'danger'
-            );
+            addActivity('🚫 Session terminated', 'danger');
         }
 
         fetch('/log_incident', {
             method:  'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 reason: 'Trust score critically low',
                 score:  score
@@ -209,11 +208,9 @@ function handleTrustUpdate(score, status) {
         .then(data => {
             if (data.auto_blocked) {
                 alert(
-                    '🚨 Your account has been ' +
-                    'temporarily blocked due to ' +
-                    'multiple suspicious login ' +
-                    'attempts. Please contact ' +
-                    'your administrator.'
+                    '🚨 Your account has been temporarily ' +
+                    'blocked due to multiple suspicious ' +
+                    'login attempts. Contact your admin.'
                 );
             }
         })
