@@ -10,6 +10,7 @@ import json
 import random
 import string
 import requests
+import joblib
 from datetime import datetime, timedelta
 from features.extractor import (extract_features_from_raw,
                                  compare_to_profile,
@@ -26,6 +27,80 @@ app.secret_key = os.getenv('SECRET_KEY')
 DB_PATH        = os.getenv('DB_PATH')
 
 os.makedirs('database', exist_ok=True)
+
+
+# ── Load CMU-Trained ML Models (.pkl) ─────────────────────────────
+# These were trained in models/train_model.ipynb on the CMU
+# keystroke dataset. They act as a SECONDARY "human-likeness"
+# signal blended with the primary personal z-score profile —
+# not a replacement for it.
+ML_MODELS_AVAILABLE = False
+rf_model = svm_model = iso_model = scaler_model = feat_cols = None
+
+try:
+    if os.path.exists('models/rf_model.pkl'):
+        rf_model     = joblib.load('models/rf_model.pkl')
+        svm_model    = joblib.load('models/svm_model.pkl')
+        iso_model    = joblib.load('models/if_model.pkl')
+        scaler_model = joblib.load('models/scaler.pkl')
+        feat_cols    = joblib.load('models/feature_cols.pkl')
+        ML_MODELS_AVAILABLE = True
+        print(f"✅ CMU-trained models loaded "
+              f"({len(feat_cols)} features expected)")
+    else:
+        print("⚠️ No .pkl files found — "
+              "running on z-score method only")
+except Exception as e:
+    print(f"⚠️ CMU models failed to load: {e}")
+    ML_MODELS_AVAILABLE = False
+
+
+def get_human_likeness_score(features):
+    """
+    Secondary signal using the CMU-trained models.
+    Checks whether the typing rhythm looks generically
+    human/plausible — NOT personalized to a specific user.
+    Returns a 0-100 score, or None if models aren't loaded
+    or scoring fails for any reason.
+    """
+    if not ML_MODELS_AVAILABLE:
+        return None
+
+    try:
+        base_vals = [
+            features['dwell_mean'],
+            features['dd_mean'],
+            features['ud_mean'],
+            features['wpm'],
+            features['error_rate']
+        ]
+        # Tile our 5 known stats to fill the model's
+        # expected 31-feature input shape (approximation —
+        # there's no exact 1:1 mapping to CMU's columns)
+        repeats = (len(feat_cols) // len(base_vals)) + 1
+        vec = (base_vals * repeats)[:len(feat_cols)]
+
+        sample = scaler_model.transform([vec])
+
+        rf_prob      = rf_model.predict_proba(sample)[0]
+        classes      = list(rf_model.classes_)
+        genuine_prob = rf_prob[classes.index(1)] \
+                       if 1 in classes else 0.5
+
+        svm_pred  = svm_model.predict(sample)[0]
+        iso_pred  = iso_model.predict(sample)[0]
+        svm_score = 1.0 if svm_pred == 1 else 0.0
+        iso_score = 1.0 if iso_pred == 1 else 0.0
+
+        blended = (genuine_prob * 0.5 +
+                   svm_score * 0.3 +
+                   iso_score * 0.2)
+
+        return round(blended * 100, 2)
+
+    except Exception as e:
+        print(f"⚠️ Human-likeness scoring error: {e}")
+        return None
 
 
 # ── Time Format Filter ────────────────────────────────────────────
@@ -99,7 +174,6 @@ def get_user_email(user_id):
 
 
 def get_admin_info(company_id):
-    """Get admin email and username for a company"""
     conn  = get_db()
     admin = conn.execute('''
         SELECT username, email FROM users
@@ -161,12 +235,7 @@ def admin_required(f):
 def send_security_alerts(user_id, username,
                           company_id, alert_type,
                           trust_score, details=''):
-    """
-    Send email alerts to both user and admin
-    when security event occurs
-    """
     try:
-        # Send to user
         user_email = get_user_email(user_id)
         if user_email:
             send_user_alert_email(
@@ -174,7 +243,6 @@ def send_security_alerts(user_id, username,
                 alert_type, trust_score, details
             )
 
-        # Send to admin
         admin = get_admin_info(company_id)
         if admin:
             send_admin_alert_email(
@@ -443,7 +511,6 @@ def login():
                 ))
                 conn.commit()
 
-                # Send new location alert emails
                 import threading
                 threading.Thread(
                     target=send_security_alerts,
@@ -641,7 +708,8 @@ def admin_dashboard():
         username        = session['username'],
         company         = session.get('company', ''),
         company_code    = company['company_code']
-                          if company else ''
+                          if company else '',
+        ml_models_active = ML_MODELS_AVAILABLE
     )
 
 
@@ -992,8 +1060,23 @@ def analyze_keystrokes():
             'message':     'No profile found'
         })
 
+    # ── Primary signal: personal z-score profile ──
     trust_score, explanation = compare_to_profile(
         features, profile)
+
+    # ── Secondary signal: CMU-trained ML models ──
+    # Blended in at 15% weight. If models aren't loaded
+    # or scoring fails, human_score is None and the
+    # original z-score trust_score is used unchanged.
+    human_score = get_human_likeness_score(features)
+    if human_score is not None:
+        trust_score = round(
+            trust_score * 0.85 + human_score * 0.15, 2
+        )
+        print(f"🔬 ML blend — human-likeness: "
+              f"{human_score}% | final blended: "
+              f"{trust_score}%")
+
     status, risk_level = get_risk_level(trust_score)
 
     if status in ('otp', 'terminate'):
@@ -1011,7 +1094,6 @@ def analyze_keystrokes():
         conn.commit()
         conn.close()
 
-    # Save log
     conn = get_db()
     conn.execute('''
         INSERT INTO keystroke_logs
@@ -1032,7 +1114,6 @@ def analyze_keystrokes():
     conn.commit()
     conn.close()
 
-    # Send email alerts for risky events
     import threading
     if status == 'suspicious':
         threading.Thread(
@@ -1045,7 +1126,6 @@ def analyze_keystrokes():
                 round(trust_score, 1)
             )
         ).start()
-
     elif status in ('otp', 'terminate'):
         threading.Thread(
             target=send_security_alerts,
@@ -1059,14 +1139,14 @@ def analyze_keystrokes():
         ).start()
 
     print(f"User: {session['username']} | "
-          f"Trust: {trust_score}% | "
-          f"Status: {status}")
+          f"Trust: {trust_score}% | Status: {status}")
 
     return jsonify({
         'trust_score': trust_score,
         'status':      status,
         'risk_level':  risk_level,
         'explanation': explanation,
+        'ml_blended':  human_score is not None,
         'message':     f'Trust score: {trust_score}%'
     })
 
@@ -1129,7 +1209,6 @@ def log_incident():
         ))
         auto_blocked = True
 
-        # Send auto block email alerts
         import threading
         threading.Thread(
             target=send_security_alerts,
@@ -1144,7 +1223,6 @@ def log_incident():
             )
         ).start()
 
-    # Send session terminated alerts
     import threading
     threading.Thread(
         target=send_security_alerts,
@@ -1387,6 +1465,12 @@ def external_analyze():
 
     trust_score, explanation = compare_to_profile(
         features, profile)
+
+    human_score = get_human_likeness_score(features)
+    if human_score is not None:
+        trust_score = round(
+            trust_score * 0.85 + human_score * 0.15, 2)
+
     status, risk_level = get_risk_level(trust_score)
 
     conn.execute('''
