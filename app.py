@@ -1079,20 +1079,17 @@ def analyze_keystrokes():
 
     status, risk_level = get_risk_level(trust_score)
 
-    if status in ('otp', 'terminate'):
-        otp    = generate_otp()
-        expiry = datetime.now() + timedelta(minutes=5)
-        conn   = get_db()
-        conn.execute(
-            'DELETE FROM otp_tokens WHERE user_id=?',
-            (session['user_id'],))
-        conn.execute('''
-            INSERT INTO otp_tokens
-            (user_id, otp_code, expires_at)
-            VALUES (?, ?, ?)
-        ''', (session['user_id'], otp, expiry))
-        conn.commit()
-        conn.close()
+    # NOTE: OTP token creation intentionally does NOT happen here.
+    # It used to — creating/overwriting a token on every single
+    # window with status 'otp' — but that raced against /send_otp
+    # (which only fires once the frontend confirms 2 bad windows).
+    # The window here would silently create token A with no email,
+    # then overwrite it with token B right as /send_otp tried to
+    # read it, so the email the user got didn't reliably match
+    # what was just created — explaining why the FIRST otp never
+    # arrived and only "Resend" (a clean, single read) worked.
+    # Token generation + emailing now happens in exactly one
+    # place: the /send_otp route below.
 
     conn = get_db()
     conn.execute('''
@@ -1115,31 +1112,23 @@ def analyze_keystrokes():
     conn.close()
 
     import threading
-    if status == 'suspicious':
-        threading.Thread(
-            target=send_security_alerts,
-            args=(
-                session['user_id'],
-                session['username'],
-                session.get('company_id'),
-                'SUSPICIOUS',
-                round(trust_score, 1)
-            )
-        ).start()
-    elif status in ('otp', 'terminate'):
-        threading.Thread(
-            target=send_security_alerts,
-            args=(
-                session['user_id'],
-                session['username'],
-                session.get('company_id'),
-                'HIGH_RISK',
-                round(trust_score, 1)
-            )
-        ).start()
+    # (Per-window emails removed — see note below return statement)
 
     print(f"User: {session['username']} | "
           f"Trust: {trust_score}% | Status: {status}")
+
+    # NOTE: Alert emails are intentionally NOT sent here.
+    # analyze_keystrokes() fires once per 25-keystroke window,
+    # but the frontend only ACTS on a status after 2 consecutive
+    # confirming windows (see keystroke.js historyLimit). Sending
+    # email on every raw window caused alerts to arrive before —
+    # or out of sync with — what the user actually sees on screen.
+    # Confirmed events now trigger their email from the routes
+    # that fire only once the frontend has confirmed the status:
+    #   - OTP confirmed   → /send_otp
+    #   - Terminate confirmed → /log_incident
+    # 'suspicious' status is soft — no email per-window either;
+    # it's reflected only in the UI badge.
 
     return jsonify({
         'trust_score': trust_score,
@@ -1250,34 +1239,48 @@ def send_otp():
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
 
-    conn  = get_db()
-    token = conn.execute('''
-        SELECT * FROM otp_tokens
-        WHERE user_id=? AND is_used=0
-        ORDER BY created_at DESC LIMIT 1
-    ''', (session['user_id'],)).fetchone()
+    # Always generate a fresh OTP and overwrite any old one.
+    # (Previously this only created a new token if NONE existed,
+    # otherwise reused whatever old row was sitting there — which
+    # could be stale or mid-overwrite from elsewhere. Generating
+    # fresh every time this route is called removes that ambiguity;
+    # this route is now the single source of truth for OTPs.)
+    otp    = generate_otp()
+    expiry = datetime.now() + timedelta(minutes=5)
+    conn   = get_db()
+    conn.execute(
+        'DELETE FROM otp_tokens WHERE user_id=?',
+        (session['user_id'],))
+    conn.execute('''
+        INSERT INTO otp_tokens
+        (user_id, otp_code, expires_at)
+        VALUES (?, ?, ?)
+    ''', (session['user_id'], otp, expiry))
+    conn.commit()
     conn.close()
-
-    if not token:
-        otp    = generate_otp()
-        expiry = datetime.now() + timedelta(minutes=5)
-        conn   = get_db()
-        conn.execute(
-            'DELETE FROM otp_tokens WHERE user_id=?',
-            (session['user_id'],))
-        conn.execute('''
-            INSERT INTO otp_tokens
-            (user_id, otp_code, expires_at)
-            VALUES (?, ?, ?)
-        ''', (session['user_id'], otp, expiry))
-        conn.commit()
-        conn.close()
-    else:
-        otp = token['otp_code']
 
     email   = get_user_email(session['user_id'])
     success = send_otp_email(
         email, session['username'], otp)
+
+    # This is the ONE place we now send the "high risk / OTP
+    # required" alert to the admin — fires exactly once, at the
+    # same moment the user sees the OTP modal, instead of firing
+    # once per raw 25-keystroke window from analyze_keystrokes().
+    body_data    = request.get_json(silent=True) or {}
+    score_for_email = body_data.get('trust_score', 0)
+
+    import threading
+    threading.Thread(
+        target=send_security_alerts,
+        args=(
+            session['user_id'],
+            session['username'],
+            session.get('company_id'),
+            'HIGH_RISK',
+            score_for_email
+        )
+    ).start()
 
     return jsonify({
         'success': success,

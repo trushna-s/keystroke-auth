@@ -5,9 +5,8 @@ let keydownTimes   = {};
 let backspaceCount = 0;
 const windowSize   = 25;
 
-// REDUCED from 5 → 2. With only 1-2 bad windows needed,
-// a different person's typing gets flagged almost immediately
-// instead of needing 75+ keystrokes of sustained deviation.
+// Need 2 consecutive non-allow windows before acting.
+// This is the security grace period — kept as-is.
 const scoreHistory = [];
 const historyLimit = 2;
 
@@ -72,9 +71,6 @@ function sendKeystrokeData(data) {
 
         processTrustScore(result);
 
-        // Only update profile if trust is high —
-        // prevents a different typist from poisoning
-        // the legitimate user's baseline.
         if (result.trust_score >= 75) {
             updateProfile(data, backspaceCount,
                           result.trust_score);
@@ -115,30 +111,26 @@ function processTrustScore(result) {
                    parseFloat(result.trust_score)));
     const status = result.status;
 
+    // Always show the CURRENT real-time score immediately,
+    // regardless of confirmation state. This fixes the
+    // "Verifying..." text disagreeing with the actual score —
+    // the displayed number now always matches what the backend
+    // just computed for THIS window.
+    updateCharts(score);
+
     scoreHistory.push({ score, status });
     if (scoreHistory.length > historyLimit) {
         scoreHistory.shift();
     }
-
-    const avgScore   = scoreHistory.reduce(
-        (sum, s) => sum + s.score, 0
-    ) / scoreHistory.length;
-    const roundedAvg = Math.round(avgScore);
 
     const lowCount = scoreHistory.filter(
         s => s.status !== 'allow'
     ).length;
 
     console.log(
-        `Avg: ${roundedAvg}% | Low: ${lowCount}/${historyLimit}`
+        `Current: ${score}% | Low: ${lowCount}/${historyLimit}`
     );
 
-    // CHANGED: require ALL recent windows to be low
-    // (was: 60% of a 5-window history — too slow).
-    // With historyLimit=2, this means 2 consecutive
-    // suspicious/risky windows (50 keystrokes) triggers
-    // action — fast enough to catch a different typist
-    // within a few seconds, but still avoids 1-window flukes.
     if (scoreHistory.length >= historyLimit &&
         lowCount >= historyLimit) {
 
@@ -154,35 +146,41 @@ function processTrustScore(result) {
             hasOTP        ? 'otp'        :
             hasSuspicious ? 'suspicious' : 'allow';
 
+        // OPTION B: report the score from the FIRST risky
+        // window in this confirmed sequence, not the latest
+        // (possibly lower) one. This reflects "when risk
+        // actually started" instead of "where it ended up
+        // after the 2-window grace period."
+        const firstRiskyWindow = scoreHistory.find(
+            s => s.status !== 'allow'
+        );
+        const reportedScore = firstRiskyWindow
+            ? firstRiskyWindow.score
+            : score;
+
         if (finalStatus === 'otp' &&
             !window.otpModalShowing) {
-            fetch('/send_otp', { method: 'POST' })
+            fetch('/send_otp', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                    trust_score: reportedScore
+                })
+            })
             .then(r => r.json())
             .then(d => console.log('OTP:', d.message));
         }
 
-        handleTrustUpdate(roundedAvg, finalStatus);
+        handleTrustUpdate(reportedScore, finalStatus);
 
-    } else {
-        // Even if not triggering an action yet, reflect
-        // the CURRENT single-window status visually if it's
-        // already risky — this is what fixes "always shows
-        // secure" even on the very first suspicious window.
-        if (status !== 'allow') {
-            handleTrustUpdate(score, status === 'terminate'
-                ? 'suspicious' : status);
-        } else {
-            handleTrustUpdate(roundedAvg, 'allow');
-        }
     }
+    // No "else" branch needed anymore — updateCharts(score)
+    // above already reflects the live number on every window,
+    // confirmed or not.
 }
 
 // ── Handle Update ─────────────────────────────────────────────────
 function handleTrustUpdate(score, status) {
-    if (typeof updateCharts === 'function') {
-        updateCharts(score);
-    }
-
     if (status === 'suspicious') {
         if (typeof addActivity === 'function') {
             addActivity('⚠️ Unusual typing detected', 'warning');
